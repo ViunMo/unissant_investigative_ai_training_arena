@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     bakeoff_workers: int = 4  # trials run concurrently in a bake-off
     llm_cache: bool = True  # persist every model response in data_dir/llm_cache.sqlite and reuse identical calls
 
+    # Optional Neo4j evidence graph (app/graph.py). Unset = off; the JSON store is always the system of record.
+    neo4j_uri: str | None = None  # e.g. bolt://localhost:7687 or neo4j+s://xxxx.databases.neo4j.io
+    neo4j_user: str = "neo4j"
+    neo4j_password: str | None = None
+    neo4j_database: str = "neo4j"
+
     data_dir: Path = Path("./data")
     default_max_turns: int = 12
     coaching_latency_target_ms: int = 3000

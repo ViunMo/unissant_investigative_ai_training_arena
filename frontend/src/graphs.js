@@ -209,3 +209,20 @@ export function flowFor(tab, c, s) {
   }
   return null
 }
+
+/** Flow narration for the cross-session graph, built from the Neo4j insight queries. */
+export function networkFlow(ins) {
+  if (!ins) return null
+  const c = ins.counts || {}
+  const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`
+  return {
+    intro: 'Built from every locked session mirrored into Neo4j: investigators, sessions, cases, the lines of questioning each session opened, and the records its contradiction flags pointed at.',
+    steps: [
+      { title: 'What the graph holds', tone: 'scenario', lines: [`${plural(c.sessions ?? 0, 'locked session')} · ${plural(c.turns ?? 0, 'turn')} · ${plural(c.flags ?? 0, 'flag')} · ${plural(c.records ?? 0, 'record')} · ${plural(c.investigators ?? 0, 'investigator')}`] },
+      { title: 'Most contradicted records', tone: 'contradiction', lines: ins.contradicted_records?.length ? ins.contradicted_records.map((r) => `${r.case_id} · ${r.title} (${r.record}) · ${plural(r.flags, 'contradiction flag')}`) : ['no contradiction flags recorded yet'] },
+      { title: 'Lines of questioning skipped', tone: 'topic', lines: ins.skipped_topics?.length ? ins.skipped_topics.map((t) => `${t.topic.replace(/_/g, ' ')} · skipped in ${t.skipped} of ${plural(t.sessions, `${t.role} session`)} (${Math.round(t.rate * 100)}%)`) : ['every line of questioning was opened in every session'] },
+      { title: 'Flags that cite an evasive turn', tone: 'flag', lines: ins.flag_precision?.length ? ins.flag_precision.map((a) => `${a.assistant_id} · ${a.supported} of ${plural(a.flags, 'flag')} over ${plural(a.sessions, 'session')}${a.precision == null ? '' : ` (${Math.round(a.precision * 100)}%)`}`) : ['no assistant flags yet'] },
+      { title: 'Investigators', tone: 'actor', lines: ins.investigators?.length ? ins.investigators.map((i) => `${i.investigator} · ${plural(i.sessions, 'session')} · first score ${i.first_score ?? '–'}, latest ${i.latest_score ?? '–'}`) : ['no investigators yet'] },
+    ],
+  }
+}

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api.js'
 import KnowledgeGraph from '../components/KnowledgeGraph.jsx'
-import { CONCEPT_GRAPH, LOOP_GRAPH, caseGraph, sessionGraph, flowFor } from '../graphs.js'
+import { CONCEPT_GRAPH, LOOP_GRAPH, caseGraph, sessionGraph, flowFor, networkFlow } from '../graphs.js'
 import { GROUP_COLORS } from '../components/KnowledgeGraph.jsx'
 import { Card, PageHeader, Pill, Tabs, Tile, Empty } from '../components/ui.jsx'
 
@@ -24,7 +24,26 @@ export default function Home({ health }) {
   const [bakeoffs, setBakeoffs] = useState([])
   const [candidates, setCandidates] = useState([])
   const [selectedNode, setSelectedNode] = useState(null)
+  const [graphStatus, setGraphStatus] = useState(null)
+  const [network, setNetwork] = useState(null)
+  const [insights, setInsights] = useState(null)
+  const [graphErr, setGraphErr] = useState(null)
+  const [rebuilding, setRebuilding] = useState(false)
   useEffect(() => { setSelectedNode(null) }, [tab, caseId, sessionId])
+  const loadNetwork = async () => {
+    setGraphErr(null)
+    try {
+      const st = await api.graphStatus(); setGraphStatus(st)
+      if (!st.configured || !st.connected) return
+      const [g, ins] = await Promise.all([api.graphSessions(), api.graphInsights()])
+      setNetwork(g); setInsights(ins)
+    } catch (e) { setGraphErr(e.message) }
+  }
+  useEffect(() => { if (tab === 'network') Promise.resolve().then(loadNetwork) }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+  const rebuild = async () => {
+    setRebuilding(true); setGraphErr(null)
+    try { await api.graphRebuild(); await loadNetwork() } catch (e) { setGraphErr(e.message) } finally { setRebuilding(false) }
+  }
 
   useEffect(() => {
     api.scenarios().then((c) => { setCases(c); setCaseId((id) => id || c[0]?.case_id || '') }).catch(() => {})
@@ -39,10 +58,11 @@ export default function Home({ health }) {
     if (tab === 'loops') return LOOP_GRAPH
     if (tab === 'case') { const c = cases.find((x) => x.case_id === caseId); return c ? caseGraph(c) : null }
     if (tab === 'session') return session ? sessionGraph(session) : null
+    if (tab === 'network') return network && network.nodes.length ? network : null
     return null
-  }, [tab, cases, caseId, session])
+  }, [tab, cases, caseId, session, network])
 
-  const flow = useMemo(() => flowFor(tab, cases.find((x) => x.case_id === caseId), session), [tab, cases, caseId, session])
+  const flow = useMemo(() => (tab === 'network' ? networkFlow(insights) : flowFor(tab, cases.find((x) => x.case_id === caseId), session)), [tab, cases, caseId, session, insights])
   const graphHeight = tab === 'concepts' ? 560 : 460
   const badges = useMemo(() => {
     const m = {}
@@ -72,13 +92,18 @@ export default function Home({ health }) {
         right={<span className="row" style={{ gap: 8 }}>
           {tab === 'case' && <select style={{ width: 'auto' }} value={caseId} onChange={(e) => setCaseId(e.target.value)}>{cases.map((c) => <option key={c.case_id} value={c.case_id}>{c.case_id} · {c.title}</option>)}</select>}
           {tab === 'session' && <select style={{ width: 'auto' }} value={sessionId} onChange={(e) => setSessionId(e.target.value)}>{sessions.map((s) => <option key={s.id} value={s.id}>{s.id} · {s.case_id} · {s.investigator}</option>)}</select>}
+          {tab === 'network' && graphStatus?.connected && <button type="button" className="btn secondary sm" onClick={rebuild} disabled={rebuilding}>{rebuilding ? <><span className="spinner" /> Rebuilding</> : 'Rebuild from all locked sessions'}</button>}
+          {tab === 'network' && <Pill tone={graphStatus?.connected ? 'good' : graphStatus?.configured ? 'bad' : 'muted'}>{graphStatus ? (graphStatus.connected ? 'Neo4j connected' : graphStatus.configured ? 'Neo4j unreachable' : 'Neo4j off') : 'checking'}</Pill>}
         </span>}>
-        <Tabs value={tab} onChange={setTab} items={[['concepts', 'Arena concepts'], ['loops', 'Loops and disciplines'], ['case', 'Case knowledge'], ['session', 'Session evidence']]} />
+        <Tabs value={tab} onChange={setTab} items={[['concepts', 'Arena concepts'], ['loops', 'Loops and disciplines'], ['case', 'Case knowledge'], ['session', 'Session evidence'], ['network', 'Across sessions']]} />
         <div className="kg-layout">
           <div>
             {graph
               ? <KnowledgeGraph key={tab + caseId + sessionId} nodes={graph.nodes} links={graph.links} height={graphHeight} selected={selectedNode} onSelect={setSelectedNode} badges={badges} />
-              : <Empty title={tab === 'session' ? 'No locked session yet' : 'Loading'} hint={tab === 'session' ? 'Lock a finding on the Practice page to see its evidence graph here.' : undefined} />}
+              : tab === 'network'
+                ? <Empty title={graphErr ? 'Neo4j query failed' : !graphStatus ? 'Checking Neo4j' : !graphStatus.configured ? 'Neo4j is not configured' : !graphStatus.connected ? 'Neo4j is unreachable' : 'No locked sessions in the graph yet'}
+                    hint={graphErr || (graphStatus && !graphStatus.configured ? 'Set ARENA_NEO4J_URI and ARENA_NEO4J_PASSWORD in backend/.env (see the README) to mirror locked sessions into Neo4j.' : graphStatus && !graphStatus.connected ? graphStatus.error : 'Lock a finding on the Practice page, or press "Rebuild from all locked sessions".')} />
+                : <Empty title={tab === 'session' ? 'No locked session yet' : 'Loading'} hint={tab === 'session' ? 'Lock a finding on the Practice page to see its evidence graph here.' : undefined} />}
           </div>
           <aside className="flow" style={{ maxHeight: graphHeight + 40 }} aria-label="Flow description">
             {(() => {
@@ -115,6 +140,7 @@ export default function Home({ health }) {
           {tab === 'loops' && 'The five engineered loops nest inside each other; each discipline (prompt, context, harness, loop) points at the modules where it is applied.'}
           {tab === 'case' && 'Built from the public case packet only: objective, timeline, initial records and the lines of questioning. Nothing here reveals the role.'}
           {tab === 'session' && 'Turns in order, with the records released after each one, every flag pointing at the turn it cites, contradictions linked to the record they conflict with, and both locked findings against the revealed ground truth.'}
+          {tab === 'network' && 'Every locked session is mirrored into Neo4j. This view joins investigators, sessions, cases, the lines of questioning each session opened and the records its contradiction flags pointed at; the panel answers questions that span sessions with Cypher queries.'}
         </p>
       </Card>
 

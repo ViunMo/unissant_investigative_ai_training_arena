@@ -11,6 +11,7 @@ from app.agents.candidates import CandidateRegistry
 from app.api.routes import Services, public, router
 from app.auth import UserStore
 from app.config import Settings, get_settings
+from app.graph import GraphSync
 from app.scenarios.engine import ScenarioEngine
 from app.store import Store
 
@@ -21,6 +22,7 @@ async def _lifespan(app: FastAPI):
     path = getattr(app.state, "llm_cache_path", None)
     app.state.llm_cache = install_cache(path) if path else None
     yield
+    app.state.services.graph.close()
 
 
 def create_app(settings: Settings | None = None, persist: bool = True) -> FastAPI:
@@ -40,6 +42,8 @@ def create_app(settings: Settings | None = None, persist: bool = True) -> FastAP
         registry=CandidateRegistry(settings),
         store=Store(settings.data_dir if persist else None),
         users=UserStore(settings.data_dir if persist else None, settings.admin_user, settings.admin_password, settings.secret_key),
+        # ephemeral apps (tests, scripted evaluation with persist=False) never mirror sessions into Neo4j
+        graph=GraphSync(settings.neo4j_uri if persist else None, settings.neo4j_user, settings.neo4j_password, settings.neo4j_database),
     )
     app.include_router(public)
     app.include_router(router)

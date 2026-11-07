@@ -143,6 +143,8 @@ evaluator-only canary strings (role markers, private objectives). A candidate th
 | POST | `/api/bakeoffs` | start a tournament (runs in the background) |
 | GET | `/api/bakeoffs/{id}?include_results=true` | status, leaderboards, per-trial results |
 | POST | `/api/bakeoffs/{id}/stop` | stop a queued or running bake-off (status becomes `cancelled`) |
+| GET | `/api/graph/status` · `/insights` · `/sessions` | Neo4j connection, cross-session queries, node/link graph (503 when not configured) |
+| POST | `/api/graph/rebuild` | mirror every locked session into Neo4j |
 | DELETE | `/api/bakeoffs` · `/api/bakeoffs/{id}` | clear every finished bake-off, or delete one |
 
 ## Project layout
@@ -151,6 +153,7 @@ evaluator-only canary strings (role markers, private objectives). A candidate th
 backend/app
   config.py            settings (provider auto|cloud|openai_compatible|mock, model list, vendor keys)
   auth.py              login: PBKDF2 password hashes in data/users.json, HMAC-signed bearer tokens
+  graph.py             optional Neo4j mirror of locked sessions + cross-session Cypher queries
   schemas.py           all Pydantic models
   scenarios/           library.py (3 families × 2 variants), engine.py
   agents/              context.py (isolation boundary), llm.py (deepagents, rate limiters), cache.py, mock.py, candidates.py,
@@ -158,7 +161,7 @@ backend/app
   loops/               interview_loop.py (L2), bakeoff_loop.py (L3)
   scoring/scoring.py   debrief, trial results, leaderboards, bootstrap CI, progress
   api/routes.py        FastAPI routes;  main.py app factory
-backend/tests          38 tests, all runnable offline
+backend/tests          42 tests, all runnable offline
 frontend/src           login page + sidebar app shell; pages: Login, Home (KPIs + knowledge graphs), Practice (stepper), Sessions (progress chart),
                        Bakeoff (leaderboards), Scenarios; components: KnowledgeGraph (d3-force), ScoreChart, Coaching, Debrief
 ```
@@ -196,6 +199,25 @@ A model whose vendor key is missing is listed but greyed out (`available: false`
 - One request-rate limiter per vendor (`ARENA_OPENAI_RPM`, `ARENA_ANTHROPIC_RPM`, `ARENA_GOOGLE_RPM`) is shared by
   all sessions and trials. The Gemini free tier allows 15 requests per minute, so Google defaults to 14 and the
   Gemini client retries 429s up to four times; raise the limit once billing is enabled on the Google project.
+
+## Neo4j evidence graph (optional)
+
+The Overview page draws each session's evidence graph from JSON. With Neo4j configured, every locked session is also
+mirrored into a graph database (`app/graph.py`) so questions that span sessions become Cypher queries, shown on the
+"Across sessions" tab: the most contradicted records, lines of questioning skipped on deceptive versus truthful cases,
+how often each assistant's flags cite a turn that was actually evasive, and every investigator's score history.
+
+```bash
+docker compose -f docker-compose.neo4j.yml up -d      # or Neo4j Desktop, or a free Neo4j Aura instance
+```
+
+`backend/.env`: `ARENA_NEO4J_URI=bolt://localhost:7687`, `ARENA_NEO4J_PASSWORD=arena-neo4j` (Aura: `neo4j+s://...`).
+The JSON store stays the system of record; the graph is written after each lock in the background and never blocks
+the debrief. `POST /api/graph/rebuild` (the "Rebuild" button on the tab) backfills every locked session; writes use
+`MERGE` throughout, so it is safe to run repeatedly. Nothing from the private subject packet is written: the graph
+holds only what the debrief already reveals. Model: `(Investigator)-[:CONDUCTED]->(Session)-[:ON_CASE]->(Case)`,
+`(Session)-[:HAS_TURN]->(Turn)-[:NEXT]->(Turn)`, `(Turn)-[:COVERS]->(Topic)`, `(Turn)-[:RELEASED]->(Record)`,
+`(Session)-[:RAISED]->(Flag)-[:CITES]->(Turn)`, `(Flag)-[:CONTRADICTS]->(Record)`.
 
 ## Login
 

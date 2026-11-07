@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from app.agents.candidates import CandidateRegistry
 from app.auth import AuthError, UserStore
+from app.graph import GraphNotConfigured, GraphSync
 from app.loops.bakeoff_loop import BakeoffLoop
 from app.loops.interview_loop import InterviewLoop
 from app.scenarios.engine import ScenarioEngine, investigator_view
@@ -20,11 +21,13 @@ logger = logging.getLogger(__name__)
 
 
 class Services:
-    def __init__(self, engine: ScenarioEngine, registry: CandidateRegistry, store: Store, users: UserStore) -> None:
+    def __init__(self, engine: ScenarioEngine, registry: CandidateRegistry, store: Store, users: UserStore,
+                 graph: GraphSync | None = None) -> None:
         self.engine = engine
         self.registry = registry
         self.store = store
         self.users = users
+        self.graph = graph or GraphSync(None)
         self.interviews = InterviewLoop(engine, registry)
         self.bakeoffs = BakeoffLoop(self.interviews, workers=registry.settings.bakeoff_workers)
         self.executor = ThreadPoolExecutor(max_workers=2)
@@ -251,6 +254,8 @@ def commit_finding(sid: str, body: FinalFinding, request: Request):
     except Exception as exc:
         raise model_call_failed(exc)
     s.store.save_session(session)
+    if s.graph.enabled:  # mirror the locked session into Neo4j without holding up the debrief
+        s.executor.submit(s.graph.sync_session, session, scenario)
     return session_view(session)
 
 
@@ -271,6 +276,53 @@ def trainer_rating(sid: str, body: TrainerRating, request: Request):
 @router.get("/investigators/{name}/progress")
 def progress(name: str, request: Request):
     return investigator_progress(svc(request).store.sessions_for(name))
+
+
+# ---------------------------------------------------------------------------
+# Neo4j evidence graph (optional)
+# ---------------------------------------------------------------------------
+def graph_or_503(s: Services) -> GraphSync:
+    if not s.graph.enabled:
+        raise HTTPException(503, "Neo4j is not configured: set ARENA_NEO4J_URI and ARENA_NEO4J_PASSWORD in backend/.env")
+    return s.graph
+
+
+@router.get("/graph/status")
+def graph_status(request: Request):
+    return svc(request).graph.status()
+
+
+@router.get("/graph/insights")
+def graph_insights(request: Request):
+    g = graph_or_503(svc(request))
+    try:
+        return g.insights()
+    except GraphNotConfigured as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Neo4j query failed: {type(exc).__name__}: {str(exc)[:300]}")
+
+
+@router.get("/graph/sessions")
+def graph_sessions(request: Request, investigator: str | None = None, limit: int = 60):
+    g = graph_or_503(svc(request))
+    try:
+        return g.network(investigator or None, max(1, min(limit, 300)))
+    except GraphNotConfigured as exc:
+        raise HTTPException(503, str(exc))
+    except Exception as exc:
+        raise HTTPException(502, f"Neo4j query failed: {type(exc).__name__}: {str(exc)[:300]}")
+
+
+@router.post("/graph/rebuild")
+def graph_rebuild(request: Request):
+    """Write every locked session in the store to Neo4j (idempotent: MERGE throughout)."""
+    s = svc(request)
+    g = graph_or_503(s)
+    n = g.sync_all(list(s.store.sessions.values()), s.engine.lock)
+    if g.error:
+        raise HTTPException(502, f"Neo4j sync failed: {g.error}")
+    return {"synced": n, "status": g.status()}
 
 
 @router.post("/bakeoffs", status_code=202)

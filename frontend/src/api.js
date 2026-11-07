@@ -45,4 +45,8 @@ export const api = {
   stopBakeoff: (id) => request(`/bakeoffs/${id}/stop`, { method: 'POST' }),
   clearBakeoffs: () => request('/bakeoffs', { method: 'DELETE' }),
   deleteBakeoff: (id) => request(`/bakeoffs/${id}`, { method: 'DELETE' }),
+  graphStatus: () => request('/graph/status'),
+  graphInsights: () => request('/graph/insights'),
+  graphSessions: (investigator) => request(investigator ? `/graph/sessions?investigator=${encodeURIComponent(investigator)}` : '/graph/sessions'),
+  graphRebuild: () => request('/graph/rebuild', { method: 'POST' }),
 }
