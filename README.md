@@ -18,7 +18,9 @@ All cases, people, companies and records are synthetic.
 
 Docs: [architecture.md](architecture.md) (components, loops, engineering disciplines) and [app_usage.md](app_usage.md) (how to use the app, with flow diagrams).
 
-![Architecture overview](docs/architecture-overview.svg)
+![Architecture overview](docs/architecture-overview.png)
+
+(Source: [docs/architecture-overview.svg](docs/architecture-overview.svg); the PNG is a rendered copy so the layout is identical in every viewer.)
 
 ## Quick start
 

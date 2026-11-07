@@ -7,7 +7,7 @@ Diagrams are Mermaid; GitHub and the VS Code Markdown preview render them.
 
 ## 1. System context
 
-A rendered overview is in [docs/architecture-overview.svg](docs/architecture-overview.svg); the same picture as Mermaid:
+A rendered overview is in [docs/architecture-overview.png](docs/architecture-overview.png) (source: [docs/architecture-overview.svg](docs/architecture-overview.svg)); the same picture as Mermaid:
 
 ```mermaid
 flowchart LR
