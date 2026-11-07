@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="860" viewBox="0 0 1240 860" font-family="Montserrat, Segoe UI, Helvetica, Arial, sans-serif" font-size="13">
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="880" viewBox="0 0 1440 880" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M0 0L10 5 0 10z" fill="#335a92"/>
@@ -11,165 +11,177 @@
       .sub { font-size: 13px; fill: #4a5a73; }
       .layer { fill: #f4f7fc; stroke: #143a7a; stroke-width: 1.5; rx: 12; }
       .layerTitle { font-size: 15px; font-weight: 700; fill: #143a7a; }
+      .layerSub { font-size: 11.5px; fill: #4a5a73; }
       .box { fill: #ffffff; stroke: #335a92; stroke-width: 1.2; rx: 8; }
-      .boxTitle { font-weight: 700; fill: #0e2246; }
-      .boxText { fill: #334155; font-size: 12px; }
+      .t { font-size: 13px; font-weight: 700; fill: #0e2246; }
+      .l { font-size: 12px; fill: #334155; }
       .ext { fill: #fff8e6; stroke: #b8860b; stroke-width: 1.4; rx: 8; }
-      .extTitle { font-weight: 700; fill: #6b4f00; }
+      .et { font-size: 13px; font-weight: 700; fill: #6b4f00; }
       .store { fill: #eef2f7; stroke: #6b7f9f; stroke-width: 1.2; rx: 8; }
       .edge { stroke: #335a92; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
       .edgeGold { stroke: #b8860b; stroke-width: 1.6; fill: none; marker-end: url(#arrowGold); }
-      .edgeLabel { fill: #4a5a73; font-size: 11.5px; }
-      .user { fill: #143a7a; }
+      .edgeLabel { fill: #4a5a73; font-size: 11px; }
+      .note { fill: #4a5a73; font-size: 11.5px; }
+      .sm { rx: 3; }
     </style>
   </defs>
 
-  <rect width="1240" height="860" fill="#ffffff"/>
-  <text x="40" y="42" class="title">Investigative AI Training Arena · architecture overview</text>
-  <text x="40" y="64" class="sub">Investigators interview simulated subjects while competing AI assistants coach them; assistants and subjects are compared in blinded bake-offs. Unissant Challenge X.</text>
+  <rect width="1440" height="880" fill="#ffffff"/>
+  <text x="30" y="40" class="title">Investigative AI Training Arena · architecture overview</text>
+  <text x="30" y="62" class="sub">Investigators interview simulated subjects while competing AI assistants coach them; assistants and subjects are compared in blinded bake-offs.</text>
 
   <!-- Users -->
-  <rect x="40" y="330" width="180" height="96" class="box"/>
-  <circle cx="80" cy="358" r="12" class="user"/>
-  <path d="M60 392c2-16 10-22 20-22s18 6 20 22" fill="#143a7a"/>
-  <text x="104" y="356" class="boxTitle">Investigator</text>
-  <text x="104" y="374" class="boxTitle">Trainer</text>
-  <text x="54" y="412" class="boxText">browser · signs in once</text>
+  <rect x="30" y="360" width="180" height="90" class="box"/>
+  <circle cx="66" cy="388" r="11" fill="#143a7a"/>
+  <path d="M48 420c2-15 9-20 18-20s16 5 18 20" fill="#143a7a"/>
+  <text x="90" y="384" class="t">Investigator</text>
+  <text x="90" y="402" class="t">Trainer</text>
+  <text x="44" y="438" class="l">browser, signs in once</text>
 
   <!-- Frontend layer -->
-  <rect x="270" y="100" width="280" height="640" class="layer"/>
-  <text x="290" y="128" class="layerTitle">React 19 + Vite frontend  :5173</text>
-  <text x="290" y="146" class="boxText">Unissant typeface and gold accent · d3-force graphs</text>
+  <rect x="250" y="96" width="320" height="694" class="layer"/>
+  <text x="268" y="124" class="layerTitle">React 19 + Vite frontend :5173</text>
+  <text x="268" y="142" class="layerSub">Unissant typeface and gold accent, d3-force graphs</text>
 
-  <rect x="290" y="166" width="240" height="62" class="box"/>
-  <text x="302" y="186" class="boxTitle">Login page</text>
-  <text x="302" y="203" class="boxText">sign in / create account</text>
-  <text x="302" y="218" class="boxText">bearer token kept in localStorage</text>
+  <rect x="270" y="160" width="280" height="58" class="box"/>
+  <text x="282" y="180" class="t">Login page</text>
+  <text x="282" y="197" class="l">sign in or create account</text>
+  <text x="282" y="212" class="l">bearer token in localStorage</text>
 
-  <rect x="290" y="240" width="240" height="78" class="box"/>
-  <text x="302" y="260" class="boxTitle">Overview</text>
-  <text x="302" y="277" class="boxText">KPIs · knowledge graphs: concepts, loops,</text>
-  <text x="302" y="292" class="boxText">case, session evidence,</text>
-  <text x="302" y="307" class="boxText">across sessions (Neo4j)</text>
+  <rect x="270" y="230" width="280" height="74" class="box"/>
+  <text x="282" y="250" class="t">Overview</text>
+  <text x="282" y="267" class="l">KPIs and knowledge graphs:</text>
+  <text x="282" y="282" class="l">concepts, loops, case, session,</text>
+  <text x="282" y="297" class="l">across sessions (Neo4j)</text>
 
-  <rect x="290" y="330" width="240" height="78" class="box"/>
-  <text x="302" y="350" class="boxTitle">Practice</text>
-  <text x="302" y="367" class="boxText">chat with avatars + typing indicator</text>
-  <text x="302" y="382" class="boxText">live coaching panel, released records,</text>
-  <text x="302" y="397" class="boxText">lock a finding, debrief</text>
+  <rect x="270" y="316" width="280" height="74" class="box"/>
+  <text x="282" y="336" class="t">Practice</text>
+  <text x="282" y="353" class="l">chat with avatars and typing dots</text>
+  <text x="282" y="368" class="l">live coaching, released records,</text>
+  <text x="282" y="383" class="l">lock a finding, debrief</text>
 
-  <rect x="290" y="420" width="240" height="62" class="box"/>
-  <text x="302" y="440" class="boxTitle">Sessions</text>
-  <text x="302" y="457" class="boxText">history · questioning score chart</text>
-  <text x="302" y="472" class="boxText">+20% vs own baseline (L4)</text>
+  <rect x="270" y="402" width="280" height="58" class="box"/>
+  <text x="282" y="422" class="t">Sessions</text>
+  <text x="282" y="439" class="l">history and questioning score</text>
+  <text x="282" y="454" class="l">+20% vs own baseline (L4)</text>
 
-  <rect x="290" y="494" width="240" height="78" class="box"/>
-  <text x="302" y="514" class="boxTitle">Bake-off</text>
-  <text x="302" y="531" class="boxText">candidate chips · live feed of every call</text>
-  <text x="302" y="546" class="boxText">stop / clear / delete runs</text>
-  <text x="302" y="561" class="boxText">leaderboards with gates and CIs</text>
+  <rect x="270" y="472" width="280" height="74" class="box"/>
+  <text x="282" y="492" class="t">Bake-off</text>
+  <text x="282" y="509" class="l">candidate chips, live feed</text>
+  <text x="282" y="524" class="l">stop / clear / delete runs</text>
+  <text x="282" y="539" class="l">leaderboards, gates, CIs</text>
 
-  <rect x="290" y="584" width="240" height="46" class="box"/>
-  <text x="302" y="604" class="boxTitle">Scenarios</text>
-  <text x="302" y="620" class="boxText">public case packets only</text>
+  <rect x="270" y="558" width="280" height="44" class="box"/>
+  <text x="282" y="578" class="t">Scenarios</text>
+  <text x="282" y="594" class="l">public case packets only</text>
 
-  <text x="290" y="668" class="boxText">api.js: /api proxy, Authorization: Bearer,</text>
-  <text x="290" y="684" class="boxText">401 → back to the login page</text>
+  <text x="270" y="640" class="note">api.js: /api proxy with Bearer token;</text>
+  <text x="270" y="656" class="note">a 401 returns to the login page</text>
 
   <!-- Backend layer -->
-  <rect x="600" y="100" width="400" height="640" class="layer"/>
-  <text x="620" y="128" class="layerTitle">FastAPI backend  :8000</text>
-  <text x="620" y="146" class="boxText">Python 3.13 · LangChain deepagents · pydantic-settings (.env wins over OS env)</text>
+  <rect x="650" y="96" width="540" height="694" class="layer"/>
+  <text x="668" y="124" class="layerTitle">FastAPI backend :8000</text>
+  <text x="668" y="142" class="layerSub">Python 3.13, LangChain deepagents, pydantic-settings (.env wins over OS env)</text>
 
-  <rect x="620" y="166" width="360" height="50" class="box"/>
-  <text x="632" y="186" class="boxTitle">auth.py + api/routes.py</text>
-  <text x="632" y="203" class="boxText">PBKDF2 users, HMAC bearer tokens · hidden-until-lock views · 401 on every route but /health, /auth</text>
+  <rect x="670" y="160" width="500" height="56" class="box"/>
+  <text x="682" y="180" class="t">auth.py + api/routes.py</text>
+  <text x="682" y="197" class="l">PBKDF2 users, HMAC bearer tokens, 12 h expiry</text>
+  <text x="682" y="211" class="l">hidden-until-lock views; 401 except /health, /auth</text>
 
-  <rect x="620" y="228" width="172" height="64" class="box"/>
-  <text x="632" y="248" class="boxTitle">L2 Interview loop</text>
-  <text x="632" y="265" class="boxText">question → subject → coach</text>
-  <text x="632" y="280" class="boxText">→ evidence release → lock</text>
+  <rect x="670" y="228" width="240" height="72" class="box"/>
+  <text x="682" y="248" class="t">L2 Interview loop</text>
+  <text x="682" y="265" class="l">question, subject answer,</text>
+  <text x="682" y="280" class="l">coaching, evidence release,</text>
+  <text x="682" y="295" class="l">finding locked, scored</text>
 
-  <rect x="808" y="228" width="172" height="64" class="box"/>
-  <text x="820" y="248" class="boxTitle">L3 Bake-off loop</text>
-  <text x="820" y="265" class="boxText">freeze · replay · interactive</text>
-  <text x="820" y="280" class="boxText">thread pool · stop · blind score</text>
+  <rect x="930" y="228" width="240" height="72" class="box"/>
+  <text x="942" y="248" class="t">L3 Bake-off loop</text>
+  <text x="942" y="265" class="l">freeze, replay, interactive</text>
+  <text x="942" y="280" class="l">trials on a thread pool</text>
+  <text x="942" y="295" class="l">stop at the next model step</text>
 
-  <rect x="620" y="304" width="360" height="92" class="box"/>
-  <text x="632" y="324" class="boxTitle">Agents  (candidates.py registry: model + prompt version + tools + policy)</text>
-  <text x="632" y="342" class="boxText">deepagents assistant: tools lookup_turn / list_released_evidence / get_case_packet</text>
-  <text x="632" y="357" class="boxText">deepagents subject: private packet in the system prompt, reports a tactic per turn</text>
-  <text x="632" y="372" class="boxText">mock baselines (rules) · L0 validation loop · L1 rubric loop (RubricMiddleware)</text>
-  <text x="632" y="387" class="boxText">HarnessProfile: no filesystem, shell or subagent tools · AssistantContext = isolation boundary</text>
+  <rect x="670" y="312" width="500" height="108" class="box"/>
+  <text x="682" y="332" class="t">Agents (candidates.py: model + prompt + tools + policy)</text>
+  <text x="682" y="349" class="l">deepagents assistant with three read-only lookup tools</text>
+  <text x="682" y="364" class="l">deepagents subject: private packet, reports a tactic per turn</text>
+  <text x="682" y="379" class="l">mock rule baselines; L0 validation loop; L1 rubric loop</text>
+  <text x="682" y="394" class="l">HarnessProfile: no filesystem, shell or subagent tools</text>
+  <text x="682" y="409" class="l">AssistantContext is the isolation boundary</text>
 
-  <rect x="620" y="408" width="172" height="64" class="box"/>
-  <text x="632" y="428" class="boxTitle">Scenario engine</text>
-  <text x="632" y="445" class="boxText">3 families × 2 variants, locked</text>
-  <text x="632" y="460" class="boxText">public / private / evaluator packets</text>
+  <rect x="670" y="432" width="240" height="72" class="box"/>
+  <text x="682" y="452" class="t">Scenario engine</text>
+  <text x="682" y="469" class="l">3 families x 2 variants</text>
+  <text x="682" y="484" class="l">public, private, evaluator</text>
+  <text x="682" y="499" class="l">packets; scripted releases</text>
 
-  <rect x="808" y="408" width="172" height="64" class="box"/>
-  <text x="820" y="428" class="boxTitle">Independent scorer</text>
-  <text x="820" y="445" class="boxText">debrief, evasion P/R, isolation,</text>
-  <text x="820" y="460" class="boxText">5% FP gate, bootstrap CIs, progress</text>
+  <rect x="930" y="432" width="240" height="72" class="box"/>
+  <text x="942" y="452" class="t">Independent scorer</text>
+  <text x="942" y="469" class="l">debrief, evasion P / R,</text>
+  <text x="942" y="484" class="l">isolation and 5% FP gates,</text>
+  <text x="942" y="499" class="l">bootstrap CIs, progress</text>
 
-  <rect x="620" y="484" width="360" height="78" class="box"/>
-  <text x="632" y="504" class="boxTitle">llm.py model layer</text>
-  <text x="632" y="521" class="boxText">build_chat_model: vendor inferred from the model id (gpt-* / claude-* / gemini-*)</text>
-  <text x="632" y="536" class="boxText">effort → reasoning_effort or adaptive thinking · per-vendor request-rate limiters</text>
-  <text x="632" y="551" class="boxText">cache.py: SQLite response cache keyed on the conversation, zero cost on hits</text>
+  <rect x="670" y="516" width="500" height="88" class="box"/>
+  <text x="682" y="536" class="t">llm.py model layer + cache.py</text>
+  <text x="682" y="553" class="l">vendor inferred from the model id: gpt-*, claude-*, gemini-*</text>
+  <text x="682" y="568" class="l">effort maps to reasoning_effort or adaptive thinking</text>
+  <text x="682" y="583" class="l">one request-rate limiter per vendor (Gemini free: 14/min)</text>
+  <text x="682" y="598" class="l">SQLite response cache keyed on the conversation; hits cost 0</text>
 
-  <rect x="620" y="574" width="172" height="78" class="store"/>
-  <text x="632" y="594" class="boxTitle">store.py</text>
-  <text x="632" y="611" class="boxText">JSON snapshots on disk:</text>
-  <text x="632" y="626" class="boxText">sessions, bake-offs, users,</text>
-  <text x="632" y="641" class="boxText">llm_cache.sqlite, secret.key</text>
+  <rect x="670" y="616" width="240" height="72" class="store"/>
+  <text x="682" y="636" class="t">store.py</text>
+  <text x="682" y="653" class="l">JSON snapshots on disk:</text>
+  <text x="682" y="668" class="l">sessions, bake-offs, users,</text>
+  <text x="682" y="683" class="l">llm_cache.sqlite, secret.key</text>
 
-  <rect x="808" y="574" width="172" height="78" class="store"/>
-  <text x="820" y="594" class="boxTitle">graph.py  (optional)</text>
-  <text x="820" y="611" class="boxText">mirrors locked sessions to Neo4j</text>
-  <text x="820" y="626" class="boxText">in the background · Cypher insights</text>
-  <text x="820" y="641" class="boxText">across sessions · rebuild endpoint</text>
+  <rect x="930" y="616" width="240" height="72" class="store"/>
+  <text x="942" y="636" class="t">graph.py (optional)</text>
+  <text x="942" y="653" class="l">mirrors locked sessions to</text>
+  <text x="942" y="668" class="l">Neo4j in the background;</text>
+  <text x="942" y="683" class="l">Cypher insights, rebuild</text>
 
-  <text x="620" y="690" class="boxText">Nothing from the private packet or the scoring keys leaves the backend until a finding is locked.</text>
-  <text x="620" y="706" class="boxText">Every assistant input is logged and scanned for evaluator-only canaries.</text>
+  <text x="670" y="716" class="note">Private packets and scoring keys never leave the backend</text>
+  <text x="670" y="732" class="note">until a finding is locked; every assistant input is logged</text>
+  <text x="670" y="748" class="note">and scanned for evaluator-only canaries.</text>
 
   <!-- External services -->
-  <rect x="1040" y="440" width="170" height="54" class="ext"/>
-  <text x="1052" y="460" class="extTitle">OpenAI</text>
-  <text x="1052" y="478" class="boxText">gpt-6-luna</text>
+  <text x="1230" y="420" class="note">keys in backend/.env</text>
+  <text x="1230" y="435" class="note">(gitignored)</text>
 
-  <rect x="1040" y="506" width="170" height="54" class="ext"/>
-  <text x="1052" y="526" class="extTitle">Anthropic</text>
-  <text x="1052" y="544" class="boxText">claude-haiku-5-5</text>
+  <rect x="1230" y="446" width="180" height="50" class="ext"/>
+  <text x="1242" y="466" class="et">OpenAI</text>
+  <text x="1242" y="484" class="l">gpt-6-luna</text>
 
-  <rect x="1040" y="572" width="170" height="54" class="ext"/>
-  <text x="1052" y="592" class="extTitle">Google Gemini</text>
-  <text x="1052" y="610" class="boxText">gemini-3.5-flash-lite</text>
+  <rect x="1230" y="508" width="180" height="50" class="ext"/>
+  <text x="1242" y="528" class="et">Anthropic</text>
+  <text x="1242" y="546" class="l">claude-haiku-5-5</text>
 
-  <rect x="1040" y="660" width="170" height="54" class="ext"/>
-  <text x="1052" y="680" class="extTitle">Neo4j Aura</text>
-  <text x="1052" y="698" class="boxText">cross-session evidence graph</text>
+  <rect x="1230" y="570" width="180" height="50" class="ext"/>
+  <text x="1242" y="590" class="et">Google Gemini</text>
+  <text x="1242" y="608" class="l">gemini-3.5-flash-lite</text>
 
-  <text x="1040" y="420" class="boxText">keys in backend/.env (gitignored)</text>
-  <text x="1040" y="740" class="boxText">or any OpenAI-compatible</text>
-  <text x="1040" y="755" class="boxText">gateway (e.g. local Ollama)</text>
+  <text x="1230" y="640" class="note">or any OpenAI-compatible</text>
+  <text x="1230" y="655" class="note">gateway (e.g. local Ollama)</text>
+
+  <rect x="1230" y="676" width="180" height="50" class="ext"/>
+  <text x="1242" y="696" class="et">Neo4j Aura</text>
+  <text x="1242" y="714" class="l">cross-session graph</text>
 
   <!-- Edges -->
-  <path d="M220 378 L270 378" class="edge"/>
-  <path d="M550 420 L600 420" class="edge"/>
-  <text x="552" y="410" class="edgeLabel">/api · Bearer token</text>
-  <path d="M980 467 L1040 467" class="edgeGold"/>
-  <path d="M980 523 L1040 533" class="edgeGold"/>
-  <path d="M980 540 L1040 599" class="edgeGold"/>
-  <path d="M980 626 L1040 687" class="edgeGold"/>
-  <text x="986" y="650" class="edgeLabel">bolt</text>
+  <path d="M210 405 L270 405" class="edge"/>
+  <path d="M550 430 L650 430" class="edge"/>
+  <text x="556" y="420" class="edgeLabel">/api, Bearer token</text>
+  <path d="M1170 560 L1230 471" class="edgeGold"/>
+  <path d="M1170 566 L1230 533" class="edgeGold"/>
+  <path d="M1170 572 L1230 595" class="edgeGold"/>
+  <path d="M1170 652 L1230 701" class="edgeGold"/>
+  <text x="1186" y="652" class="edgeLabel">bolt</text>
 
   <!-- Legend -->
-  <rect x="40" y="760" width="14" height="14" class="box"/>
-  <text x="62" y="772" class="boxText">application component</text>
-  <rect x="220" y="760" width="14" height="14" class="store"/>
-  <text x="242" y="772" class="boxText">persistence</text>
-  <rect x="340" y="760" width="14" height="14" class="ext"/>
-  <text x="362" y="772" class="boxText">external service (credentials in .env)</text>
-  <text x="40" y="806" class="boxText">Loops: L0 validation (parse, validate, re-prompt) · L1 rubric (grader, revise) · L2 interview · L3 bake-off · L4 investigator improvement. Mermaid versions of every flow: architecture.md.</text>
+  <rect x="30" y="820" width="14" height="14" class="box sm"/>
+  <text x="52" y="832" class="l">application component</text>
+  <rect x="220" y="820" width="14" height="14" class="store sm"/>
+  <text x="242" y="832" class="l">persistence</text>
+  <rect x="340" y="820" width="14" height="14" class="ext sm"/>
+  <text x="362" y="832" class="l">external service (credentials in .env)</text>
+  <text x="30" y="862" class="note">Loops: L0 validation (parse, validate, re-prompt) · L1 rubric (grader, revise) · L2 interview · L3 bake-off · L4 investigator improvement. Mermaid versions of every flow: architecture.md.</text>
 </svg>
