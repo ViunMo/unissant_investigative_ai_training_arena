@@ -18,6 +18,8 @@ All cases, people, companies and records are synthetic.
 
 Docs: [architecture.md](architecture.md) (components, loops, engineering disciplines) and [app_usage.md](app_usage.md) (how to use the app, with flow diagrams).
 
+![Architecture overview](docs/architecture-overview.svg)
+
 ## Quick start
 
 One command for both servers (creates the venv and installs frontend dependencies on first run):

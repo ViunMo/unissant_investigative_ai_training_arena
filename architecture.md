@@ -7,47 +7,65 @@ Diagrams are Mermaid; GitHub and the VS Code Markdown preview render them.
 
 ## 1. System context
 
+A rendered overview is in [docs/architecture-overview.svg](docs/architecture-overview.svg); the same picture as Mermaid:
+
 ```mermaid
 flowchart LR
     Inv([Investigator / Trainer])
-    FE[React + Vite frontend<br/>:5173]
-    API[FastAPI backend<br/>:8000]
-    subgraph Loops["Engineered loops"]
+    subgraph FE["React + Vite frontend :5173"]
+        LG[Login page]
+        PG[Overview · Practice · Sessions<br/>Bake-off · Scenarios]
+    end
+    subgraph API["FastAPI backend :8000"]
+        AU[auth.py<br/>PBKDF2 users, HMAC bearer tokens]
+        RT[api/routes.py<br/>hidden-until-lock views]
         IL[Interview loop L2]
-        BL[Bake-off loop L3]
+        BL[Bake-off loop L3<br/>thread pool, stop]
+        subgraph Agents["Agent runtimes (candidate registry)"]
+            DA[deepagents assistant]
+            DS[deepagents subject]
+            MA[Mock baselines]
+        end
+        ML[llm.py<br/>vendor dispatch, effort,<br/>per-vendor rate limiters]
+        CA[(cache.py<br/>SQLite response cache)]
+        SE[(Scenario engine<br/>locked case packets)]
+        SC[Independent scorer]
+        ST[(store.py<br/>JSON snapshots)]
+        GS[graph.py<br/>Neo4j mirror + Cypher insights]
     end
-    subgraph Agents["Agent runtimes"]
-        DA[deepagents assistant]
-        DS[deepagents subject]
-        MA[Mock assistant / subject<br/>rule-based baselines]
-    end
-    GW[(OpenAI-compatible gateway<br/>gpt-oss-20b<br/>or Anthropic Claude)]
-    SE[(Scenario engine<br/>locked case packets)]
-    SC[Independent scorer]
-    ST[(Store<br/>in-memory + JSON snapshots)]
+    OA[(OpenAI<br/>gpt-6-luna)]
+    AN[(Anthropic<br/>claude-haiku-5-5)]
+    GG[(Google Gemini<br/>gemini-3.5-flash-lite)]
+    NEO[(Neo4j Aura<br/>cross-session graph)]
 
-    Inv -->|browser| FE -->|/api proxy| API
-    API --> IL & BL
-    IL --> SE
-    IL --> DA & DS & MA
+    Inv -->|browser| LG --> PG -->|/api + Bearer token| RT
+    RT --> AU
+    RT --> IL & BL
     BL --> IL
-    DA & DS -->|LangChain chat model| GW
-    IL --> SC
-    BL --> SC
-    API --> ST
+    IL --> SE & SC
+    IL --> DA & DS & MA
+    DA & DS --> ML
+    ML --> CA
+    ML --> OA & AN & GG
+    RT --> ST
+    RT -->|after lock, background| GS --> NEO
 ```
 
-The frontend talks only to the API. The API never exposes a role label, a subject tactic, coaching in assessment
-mode, or scoring keys until a finding is locked.
+The frontend talks only to the API, and every route except `/health` and `/auth/*` needs a bearer token. The API
+never exposes a role label, a subject tactic, coaching in assessment mode, or scoring keys until a finding is locked.
+The JSON store is the system of record; the response cache and the Neo4j mirror are derived and can be deleted or
+turned off (`ARENA_LLM_CACHE`, `ARENA_NEO4J_URI`) without losing anything.
 
 ## 2. Code layout
 
 ```mermaid
 flowchart TB
     subgraph app["backend/app"]
-        main[main.py<br/>app factory, CORS]
-        routes[api/routes.py<br/>HTTP routes, hidden-until-lock views]
-        config["config.py<br/>provider: openai_compatible / anthropic / mock"]
+        main[main.py<br/>app factory, CORS, lifespan: response cache]
+        routes[api/routes.py<br/>HTTP routes, hidden-until-lock views,<br/>auth dependency, graph endpoints]
+        auth[auth.py<br/>users, bearer tokens]
+        config["config.py<br/>provider: cloud / openai_compatible / mock<br/>vendor keys, rate limits, Neo4j"]
+        graph[graph.py<br/>Neo4j mirror + Cypher insights]
         schemas[schemas.py<br/>all Pydantic models]
         subgraph scenarios
             lib[library.py<br/>3 families x 2 variants]
@@ -55,7 +73,8 @@ flowchart TB
         end
         subgraph agents
             ctx[context.py<br/>AssistantContext = isolation boundary]
-            llm[llm.py<br/>DeepAgentAssistant / DeepAgentSubject<br/>build_chat_model]
+            llm[llm.py<br/>DeepAgentAssistant / DeepAgentSubject<br/>build_chat_model, rate limiters, prices]
+            cache[cache.py<br/>SQLite response cache]
             mock[mock.py<br/>MockAssistant / MockSubject]
             cand[candidates.py<br/>versioned candidate registry]
             prompts[prompts.py<br/>prompt + rubric versions]
@@ -75,7 +94,8 @@ flowchart TB
     cand --> llm & mock
     llm --> prompts & prof & val & ctx
     mock --> ctx
-    routes --> store
+    routes --> store & auth & graph
+    llm --> cache
 ```
 
 ## 3. Scenario packets and the isolation boundary
@@ -120,12 +140,12 @@ sequenceDiagram
     participant S as Subject runtime
     participant A as Assistant runtime
     participant E as ScenarioEngine
-    participant GW as Model gateway
+    participant GW as Model vendor API
 
     I->>API: POST /sessions/{id}/ask {question}
     API->>L: step(session, scenario, question)
     L->>S: answer(SubjectContext: public + private + prior turns + question)
-    S->>GW: deepagents invoke (system = private packet)
+    S->>GW: deepagents invoke (system = private packet)<br/>via rate limiter; identical calls served by the response cache
     GW-->>S: {"reply","tactic","facts_used"}
     S-->>L: SubjectReply (tactic + compliance, hidden)
     L->>A: coach(AssistantContext: public + transcript + released records)
@@ -165,7 +185,7 @@ flowchart TD
 ```mermaid
 flowchart TD
     REQ[POST /bakeoffs<br/>assistant ids, subject ids, cases, repeats,<br/>exchange cap, tracks, seed] --> PLAN[Plan and validate<br/>default cases = hidden split]
-    PLAN --> BG[Background thread]
+    PLAN --> BG[Background thread<br/>trials fan out on a pool of ARENA_BAKEOFF_WORKERS;<br/>POST /bakeoffs/id/stop ends the run at the next model step]
     BG --> F[Freeze transcripts<br/>fixed harness asks question bank in order<br/>per case x subject x repeat, no coaching]
     F --> RP{replay track?}
     RP -->|yes| R[Every assistant assesses the SAME frozen transcripts<br/>turn by turn, then commits a finding]
@@ -215,7 +235,7 @@ flowchart TB
 |---|---|---|
 | **Prompt engineering** | Yes | Versioned prompts and rubrics in `agents/prompts.py`: hard rules (demeanor is never evidence, uncertainty is not evasion, prefer insufficient evidence over an unsupported accusation), explicit JSON schema in the prompt, separate rubric for coaching and for the final finding. Subject prompt renders the private packet and the per-topic "if concealing" guidance. |
 | **Context engineering** | Yes | `AssistantContext` decides exactly what reaches the assistant each turn: case packet, transcript, the records released so far, and the latest exchange. The evidence-release schedule controls *when* information arrives. Tools (`lookup_turn`, `list_released_evidence`, `get_case_packet`) let the model pull exact text for citations instead of relying on the prompt. The subject's context is its private packet plus the reconstructed conversation history. |
-| **Harness engineering** | Yes | deepagents `HarnessProfile` removes the default filesystem, shell and subagent tools (no `ls`, `read_file`, `execute`, `task`); `RubricMiddleware` is attached per candidate policy; `build_chat_model` selects the provider (gateway, Anthropic, mock) and maps the policy's `effort` to `reasoning_effort`; every candidate is a versioned harness configuration (model + prompt version + tools + policy); every assistant input is logged for the isolation audit; validation failures degrade to a conservative finding instead of failing the run. |
+| **Harness engineering** | Yes | deepagents `HarnessProfile` removes the default filesystem, shell and subagent tools (no `ls`, `read_file`, `execute`, `task`); `RubricMiddleware` is attached per candidate policy; `build_chat_model` infers the vendor from the model id (OpenAI, Anthropic, Google Gemini, or an OpenAI-compatible gateway), maps the policy's `effort` to `reasoning_effort` or adaptive thinking, and attaches a per-vendor rate limiter; every response is cached on disk; every candidate is a versioned harness configuration (model + prompt version + tools + policy); every assistant input is logged for the isolation audit; validation failures degrade to a conservative finding instead of failing the run. |
 | **Loop engineering** | Yes | The five loops above. Budgets, exit conditions and measurements are explicit, and the outer loops (bake-off, investigator progress) are what govern behaviour over time rather than within one call. |
 
 ### Mapping to the four canonical loops
@@ -252,8 +272,9 @@ flowchart TB
 
 ### What is deliberately not used
 
-- No long-term memory or retrieval store: the only "memory" is the locked transcript and the released records,
-  because anything else risks leaking role labels across trials.
+- No long-term memory or retrieval store for the agents: the only "memory" an agent sees is the locked transcript and
+  the released records, because anything else risks leaking role labels across trials. The Neo4j graph is written
+  after a lock and read only by the Overview page; no agent queries it.
 - No subagents and no filesystem/sandbox tools for the investigative agents: they are excluded by the harness profile.
 - No automated prompt rewriting from traces: tuning between tournaments is manual so that hidden-set performance
   can never feed back into a candidate inside the same tournament.
