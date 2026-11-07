@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Route, Routes } from 'react-router-dom'
-import { api } from './api.js'
+import { api, auth } from './api.js'
 import Home from './pages/Home.jsx'
+import Login from './pages/Login.jsx'
 import Practice from './pages/Practice.jsx'
 import Sessions from './pages/Sessions.jsx'
 import Bakeoff from './pages/Bakeoff.jsx'
@@ -27,17 +28,32 @@ const NAV = [
 export default function App() {
   const [health, setHealth] = useState(null)
   const [down, setDown] = useState(false)
+  const [user, setUser] = useState(undefined) // undefined = checking the stored token, null = signed out
   useEffect(() => {
     const load = () => api.health().then((h) => { setHealth(h); setDown(false) }).catch(() => setDown(true))
     load(); const t = setInterval(load, 15000); return () => clearInterval(t)
   }, [])
+  useEffect(() => {
+    if (!auth.token()) { Promise.resolve().then(() => setUser(null)); return }
+    api.me().then(setUser).catch(() => { auth.set(null); setUser(null) })
+    const onUnauthorized = () => setUser(null)
+    window.addEventListener('arena:unauthorized', onUnauthorized)
+    return () => window.removeEventListener('arena:unauthorized', onUnauthorized)
+  }, [])
+
+  const signIn = (u) => { localStorage.setItem('arena.investigator', u.username); setUser(u) }
+  const signOut = () => { auth.set(null); setUser(null) }
+
+  if (user === undefined) return <div className="login-panel" style={{ minHeight: '100vh' }}><span className="thinking"><span className="spinner" />Checking your session…</span></div>
+  if (!user) return <Login health={health} onLogin={signIn} />
+
   const live = health && health.provider !== 'mock'
   return (
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">IA</div>
-          <div><div className="brand-title">Investigative AI<br/>Training Arena</div></div>
+          <img className="brand-mark" src="/favicon.svg" alt="" />
+          <div><div className="brand-title">Investigative AI<br/>Training Arena</div><div className="brand-sub"><span className="wordmark">unissant</span> · Challenge X</div></div>
         </div>
         <nav className="nav" aria-label="Main">
           <div className="section">Workspace</div>
@@ -48,10 +64,17 @@ export default function App() {
           <a href="http://localhost:8000/docs" target="_blank" rel="noreferrer">{I.book}API docs</a>
         </nav>
         <div className="sidebar-foot">
+          <div className="user" title={`Signed in as ${user.username}`}>
+            <div className="row" style={{ gap: 8, minWidth: 0 }}>
+              <span className="avatar-sm">{user.username.slice(0, 1).toUpperCase()}</span>
+              <div style={{ minWidth: 0 }}><div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.username}</div><div className="xs muted">{user.role}</div></div>
+            </div>
+            <button type="button" className="btn ghost sm" onClick={signOut}>Sign out</button>
+          </div>
           <div className="runtime" title={health?.base_url || ''}>
             <div><span className="dot" style={{ background: down ? 'var(--bad)' : live ? 'var(--good)' : 'var(--warn)' }} />
               {down ? 'Backend unreachable' : live ? 'Live agents' : 'Mock runtime'}</div>
-            {health && <div className="model">{live ? `${health.assistant_model} · ${health.provider === 'openai_compatible' ? 'gateway' : 'anthropic'}` : 'no model credentials'}</div>}
+            {health && <div className="model">{live ? `${(health.assistant_models || [health.assistant_model]).join(' · ')} · ${health.provider_label}` : 'no model credentials'}</div>}
           </div>
           <div className="xs faint" style={{ padding: '0 4px' }}>All cases are synthetic. A simulated score is not a finding about a real person.</div>
         </div>

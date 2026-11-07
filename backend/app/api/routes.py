@@ -1,12 +1,14 @@
 """HTTP API. Role labels, tactics and scoring keys are only revealed after a finding is locked."""
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.agents.candidates import CandidateRegistry
+from app.auth import AuthError, UserStore
 from app.loops.bakeoff_loop import BakeoffLoop
 from app.loops.interview_loop import InterviewLoop
 from app.scenarios.engine import ScenarioEngine, investigator_view
@@ -14,21 +16,53 @@ from app.schemas import BakeoffRequest, BakeoffRun, FinalFinding, Mode, Session,
 from app.scoring.scoring import investigator_progress
 from app.store import Store
 
-router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 class Services:
-    def __init__(self, engine: ScenarioEngine, registry: CandidateRegistry, store: Store) -> None:
+    def __init__(self, engine: ScenarioEngine, registry: CandidateRegistry, store: Store, users: UserStore) -> None:
         self.engine = engine
         self.registry = registry
         self.store = store
+        self.users = users
         self.interviews = InterviewLoop(engine, registry)
-        self.bakeoffs = BakeoffLoop(self.interviews)
+        self.bakeoffs = BakeoffLoop(self.interviews, workers=registry.settings.bakeoff_workers)
         self.executor = ThreadPoolExecutor(max_workers=2)
 
 
 def svc(request: Request) -> Services:
     return request.app.state.services
+
+
+def require_user(request: Request) -> dict | None:
+    """Bearer-token login for every route except /health and /auth/*."""
+    s = svc(request)
+    if not s.registry.settings.auth_required:
+        return None
+    header = request.headers.get("authorization", "")
+    user = s.users.user_for_token(header[7:] if header.lower().startswith("bearer ") else None)
+    if not user:
+        raise HTTPException(401, "sign in to use the arena", headers={"WWW-Authenticate": "Bearer"})
+    return user
+
+
+public = APIRouter(prefix="/api")
+router = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
+
+
+def require_available(s: Services, cid: str) -> None:
+    """404 for an unknown candidate; 409 when its model cannot be called (missing vendor key, model not pulled)."""
+    try:
+        spec = s.registry.spec(cid)
+    except KeyError as exc:
+        raise HTTPException(404, str(exc))
+    if s.registry.available(spec) is False:
+        raise HTTPException(409, f"{cid} cannot run: {s.registry.unavailable_reason(spec)}")
+
+
+def model_call_failed(exc: Exception) -> HTTPException:
+    logger.exception("model call failed")
+    return HTTPException(502, f"model call failed: {type(exc).__name__}: {str(exc)[:300]}")
 
 
 # ---------------------------------------------------------------------------
@@ -77,8 +111,8 @@ class StartSession(BaseModel):
     investigator: str = Field(min_length=1, max_length=80)
     mode: Mode = Mode.practice
     case_id: str | None = None
-    assistant_id: str = "asst-evidence-v1"
-    subject_id: str = "subj-llm-v1"
+    assistant_id: str | None = None  # default: first candidate whose model can be called
+    subject_id: str | None = None
     max_turns: int | None = Field(default=None, ge=2, le=20)
 
 
@@ -86,16 +120,49 @@ class Ask(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
 
 
+class Credentials(BaseModel):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
-@router.get("/health")
+@public.get("/health")
 def health(request: Request):
     s = svc(request)
     st = s.registry.settings
-    return {"status": "ok", "provider": s.registry.provider, "cases": len(s.engine.case_ids()),
+    return {"status": "ok", "provider": s.registry.provider, "provider_label": st.provider_label,
+            "cases": len(s.engine.case_ids()), "auth_required": st.auth_required,
             "assistant_model": st.model_for("assistant"), "subject_model": st.model_for("subject"),
-            "base_url": st.openai_base_url if s.registry.provider == "openai_compatible" else None}
+            "assistant_models": st.models_for("assistant"), "subject_models": st.models_for("subject"),
+            "base_url": st.gateway_base_url if s.registry.provider == "openai_compatible" else None,
+            "bakeoff_workers": st.bakeoff_workers, "rate_limits_rpm": {"openai": st.openai_rpm, "anthropic": st.anthropic_rpm, "google": st.google_rpm},
+            "response_cache": request.app.state.llm_cache.stats() if getattr(request.app.state, "llm_cache", None) else None}
+
+
+@public.post("/auth/login")
+def login(body: Credentials, request: Request):
+    s = svc(request)
+    user = s.users.verify(body.username, body.password)
+    if not user:
+        raise HTTPException(401, "unknown username or wrong password")
+    return {"token": s.users.issue_token(user["username"]), "user": user}
+
+
+@public.post("/auth/register", status_code=201)
+def register(body: Credentials, request: Request):
+    s = svc(request)
+    try:
+        user = s.users.create(body.username, body.password)
+    except AuthError as exc:
+        raise HTTPException(409 if "taken" in str(exc) else 400, str(exc))
+    return {"token": s.users.issue_token(user["username"]), "user": user}
+
+
+@router.get("/auth/me")
+def me(user: dict | None = Depends(require_user)):
+    return user or {"username": "anonymous", "role": "investigator", "created_at": None}
 
 
 @router.get("/scenarios")
@@ -121,8 +188,12 @@ def candidates(request: Request, kind: str | None = None):
 def start_session(body: StartSession, request: Request):
     s = svc(request)
     case_id = body.case_id or s.engine.random_case()
+    assistant_id = body.assistant_id or s.registry.first_available("assistant")
+    subject_id = body.subject_id or s.registry.first_available("subject")
+    require_available(s, assistant_id)
+    require_available(s, subject_id)
     try:
-        session, _ = s.interviews.start(body.mode, body.investigator, case_id, body.assistant_id, body.subject_id, body.max_turns)
+        session, _ = s.interviews.start(body.mode, body.investigator, case_id, assistant_id, subject_id, body.max_turns)
     except KeyError as exc:
         raise HTTPException(404, str(exc))
     s.store.save_session(session)
@@ -157,6 +228,8 @@ def ask(sid: str, body: Ask, request: Request):
         res = s.interviews.step(session, scenario, body.question)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    except Exception as exc:  # gateway/model failures surface as a readable 502 rather than a bare 500
+        raise model_call_failed(exc)
     s.store.save_session(session)
     return {"turn": turn_view(res.turn, session), "status": session.status,
             "turns_remaining": max(0, session.max_turns - len(session.turns)),
@@ -175,6 +248,8 @@ def commit_finding(sid: str, body: FinalFinding, request: Request):
         s.interviews.commit(session, scenario, body)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    except Exception as exc:
+        raise model_call_failed(exc)
     s.store.save_session(session)
     return session_view(session)
 
@@ -202,10 +277,7 @@ def progress(name: str, request: Request):
 def start_bakeoff(body: BakeoffRequest, request: Request):
     s = svc(request)
     for cid in body.assistant_ids + body.subject_ids:
-        try:
-            s.registry.spec(cid)
-        except KeyError:
-            raise HTTPException(404, f"unknown candidate {cid}")
+        require_available(s, cid)
     run = BakeoffRun(request=body)
     try:
         s.bakeoffs.plan(run)
@@ -219,7 +291,39 @@ def start_bakeoff(body: BakeoffRequest, request: Request):
 @router.get("/bakeoffs")
 def list_bakeoffs(request: Request):
     runs = sorted(svc(request).store.bakeoffs.values(), key=lambda r: r.created_at, reverse=True)
-    return [r.model_dump(exclude={"results"}) for r in runs]
+    return [r.model_dump(exclude={"results", "events"}) for r in runs]
+
+
+@router.post("/bakeoffs/{bid}/stop")
+def stop_bakeoff(bid: str, request: Request):
+    s = svc(request)
+    try:
+        run = s.store.bakeoff(bid)
+    except KeyError:
+        raise HTTPException(404, "unknown bake-off")
+    if run.status not in ("queued", "running"):
+        raise HTTPException(400, f"bake-off is already {run.status}")
+    s.bakeoffs.request_stop(bid)
+    return {"id": bid, "status": "stopping"}
+
+
+@router.delete("/bakeoffs")
+def clear_bakeoffs(request: Request):
+    """Remove every finished bake-off (completed, failed or cancelled); running ones are left alone."""
+    return {"deleted": svc(request).store.clear_bakeoffs()}
+
+
+@router.delete("/bakeoffs/{bid}")
+def delete_bakeoff(bid: str, request: Request):
+    s = svc(request)
+    try:
+        run = s.store.bakeoff(bid)
+    except KeyError:
+        raise HTTPException(404, "unknown bake-off")
+    if run.status in ("queued", "running"):
+        raise HTTPException(409, "stop the bake-off before deleting it")
+    s.store.delete_bakeoff(bid)
+    return {"deleted": 1}
 
 
 @router.get("/bakeoffs/{bid}")

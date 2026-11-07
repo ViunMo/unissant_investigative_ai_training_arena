@@ -21,6 +21,15 @@ def test_bakeoff_cross_pairs_candidates_and_applies_gates(loop):
     assert progress[-1] == run.total
 
 
+def test_bakeoff_can_be_stopped(loop):
+    run = BakeoffRun(request=BakeoffRequest(assistant_ids=["asst-mock-evidence-v1"], subject_ids=["subj-mock-v1"]))
+    bl = BakeoffLoop(loop)
+    bl.request_stop(run.id)  # requested while still queued: the loop stops at its first step
+    bl.run(run)
+    assert run.status == "cancelled" and run.error is None and run.active == []
+    assert run.events[-1].text.startswith("stopped by the user")
+
+
 def test_bakeoff_rejects_unknown_case(loop):
     run = BakeoffRun(request=BakeoffRequest(assistant_ids=["asst-mock-evidence-v1"], subject_ids=["subj-mock-v1"], case_ids=["nope"]))
     BakeoffLoop(loop).run(run)

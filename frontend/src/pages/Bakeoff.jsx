@@ -21,6 +21,68 @@ function Matrix({ a }) {
   )
 }
 
+const STATUS_TONE = { completed: 'good', failed: 'bad', cancelled: 'muted' }
+const statusTone = (st) => STATUS_TONE[st] || 'warn'
+const finished = (st) => ['completed', 'failed', 'cancelled'].includes(st)
+
+const EVENT_TONE = { assistant_coached: 'accent', assistant_final: 'accent', subject_answered: 'info', evidence_released: 'warn', trial_done: 'good', phase: 'info' }
+
+function EventRow({ e }) {
+  const where = [e.track, e.case_id, e.turn ? `T${e.turn}` : null].filter(Boolean).join(' · ')
+  const who = e.kind.startsWith('assistant') ? e.assistant_id : e.kind.startsWith('subject') ? e.subject_id : ''
+  return (
+    <div className="feed-row">
+      <span className="xs faint mono">{new Date(e.ts).toLocaleTimeString()}</span>
+      <Pill tone={EVENT_TONE[e.kind] || ''}>{e.kind.replace(/_/g, ' ')}</Pill>
+      <div style={{ minWidth: 0 }}>
+        <div className="small">{where && <span className="mono faint">{where} · </span>}{who && <span className="mono">{who} · </span>}{e.text}</div>
+        {(e.model_input || e.model_output) && (
+          <details>
+            <summary className="xs muted" style={{ cursor: 'pointer' }}>{e.model_input ? 'data handed to the model' : 'model output'}{e.latency_ms ? ` · ${(e.latency_ms / 1000).toFixed(1)} s` : ''}</summary>
+            <pre className="feed-pre">{e.model_input || e.model_output}</pre>
+          </details>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function LiveFeed({ run }) {
+  const running = ['queued', 'running'].includes(run.status)
+  const active = run.active?.length ? run.active : run.current ? [run.current] : []
+  const events = [...(run.events || [])].reverse()
+  const pctDone = run.total ? Math.round((100 * run.progress) / run.total) : 0
+  return (
+    <div className="stack" style={{ gap: 16 }}>
+      {running && (
+        <Card title={`Live · ${run.phase || 'starting'}`} hint="every model call as it happens; hidden labels stay hidden until each trial locks">
+          <div className="stack tight">
+            <div className="row between small muted">
+              <span>{run.frozen_total ? `frozen transcripts ${run.frozen_transcripts} / ${run.frozen_total} · ` : ''}scored trials {run.progress} / {run.total}</span>
+              <span>{pctDone}%</span>
+            </div>
+            <div className="progress"><div style={{ width: `${pctDone}%` }} /></div>
+            {active.length ? active.map((cur, i) => (
+              <div className="now" key={`${cur.track}-${cur.case_id}-${cur.assistant_id}-${cur.subject_id}-${cur.repeat}-${i}`}>
+                <span><span className="faint">track</span> <b>{cur.track}</b></span>
+                <span><span className="faint">case</span> <b className="mono">{cur.case_id}</b></span>
+                {cur.assistant_id && <span><span className="faint">assistant</span> <b className="mono">{cur.assistant_id}</b></span>}
+                <span><span className="faint">subject</span> <b className="mono">{cur.subject_id}</b></span>
+                <span><span className="faint">exchange</span> <b>{cur.turn} / {cur.max_turns}</b></span>
+                <span><span className="spinner" /> {cur.stage}</span>
+              </div>
+            )) : <div className="small muted"><span className="spinner" /> preparing the next trial</div>}
+            <div className="xs muted">{run.workers > 1 ? `${run.workers} trials run at a time; ` : ''}identical model calls (replays, repeats, re-runs) are answered from the response cache; the feed below updates after every call.</div>
+          </div>
+        </Card>
+      )}
+      <Card title="Run log" hint={`${events.length} events · newest first · expand a row to see the exact text given to the model`} flush>
+        {events.length === 0 ? <Empty title="No events yet" /> : <div className="feed">{events.map((e, i) => <EventRow key={`${e.ts}-${i}`} e={e} />)}</div>}
+      </Card>
+    </div>
+  )
+}
+
 function Leaderboard({ run }) {
   const eligible = run.assistant_leaderboard.filter((a) => a.eligible)
   return (
@@ -96,21 +158,24 @@ export default function Bakeoff() {
   const [selected, setSelected] = useState(null)
   const [err, setErr] = useState(null)
   const [busy, setBusy] = useState(false)
-  const [form, setForm] = useState({ assistant_ids: ['asst-fast-v1', 'asst-mock-evidence-v1'], subject_ids: ['subj-llm-v1'], case_ids: [], repeats: 1, max_turns: 6, tracks: ['replay', 'interactive'], label: '' })
+  const [form, setForm] = useState({ assistant_ids: [], subject_ids: [], case_ids: [], repeats: 1, max_turns: 6, tracks: ['replay', 'interactive'], label: '' })
 
   useEffect(() => {
-    api.candidates('assistant').then(setAssistants)
-    api.candidates('subject').then(setSubjects)
+    // default: every model-backed assistant whose model can be called plus the evidence-first baseline,
+    // against the first such subject
+    const usable = (c) => c.runtime === 'deepagents' && c.available !== false
+    api.candidates('assistant').then((a) => { setAssistants(a); setForm((f) => ({ ...f, assistant_ids: a.filter((c) => usable(c) || c.id === 'asst-mock-evidence-v1').map((c) => c.id) })) })
+    api.candidates('subject').then((s) => { setSubjects(s); setForm((f) => ({ ...f, subject_ids: [(s.find(usable) || s[0])?.id].filter(Boolean) })) })
     api.scenarios().then(setCases)
     api.bakeoffs().then(setRuns)
   }, [])
   useEffect(() => {
-    if (!selected || ['completed', 'failed'].includes(selected.status)) return
+    if (!selected || finished(selected.status)) return
     const t = setInterval(async () => {
       const r = await api.bakeoff(selected.id)
       setSelected(r)
-      if (['completed', 'failed'].includes(r.status)) setRuns(await api.bakeoffs())
-    }, 1000)
+      if (finished(r.status)) setRuns(await api.bakeoffs())
+    }, 2000)
     return () => clearInterval(t)
   }, [selected?.id, selected?.status])
 
@@ -122,7 +187,21 @@ export default function Bakeoff() {
       setRuns(await api.bakeoffs())
     } catch (ex) { setErr(ex.message) } finally { setBusy(false) }
   }
-  const labelOf = (list) => (id) => list.find((x) => x.id === id)?.label ?? id
+  const stopRun = async () => {
+    if (!selected) return
+    setErr(null)
+    try { await api.stopBakeoff(selected.id); setSelected(await api.bakeoff(selected.id)) } catch (ex) { setErr(ex.message) }
+  }
+  const clearRuns = async () => {
+    setErr(null)
+    try {
+      await api.clearBakeoffs()
+      setRuns(await api.bakeoffs())
+      if (selected && finished(selected.status)) setSelected(null)
+    } catch (ex) { setErr(ex.message) }
+  }
+  const finishedRuns = (runs || []).filter((r) => finished(r.status)).length
+  const labelOf = (list) => (id) => { const c = list.find((x) => x.id === id); return c ? `${c.label}${c.available === false ? ` · ${c.unavailable_reason || 'unavailable'}` : ''}` : id }
   const hidden = cases.filter((c) => c.split === 'hidden').length
   const trials = form.assistant_ids.length * form.subject_ids.length * (form.case_ids.length || hidden) * form.repeats * form.tracks.length
 
@@ -146,20 +225,20 @@ export default function Bakeoff() {
               <label className="field">Label<input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="optional" /></label>
             </div>
             <div><h3 style={{ marginBottom: 6 }}>Tracks</h3><Chips items={['replay', 'interactive']} value={form.tracks} onChange={(v) => setForm({ ...form, tracks: v })} /></div>
-            <Alert tone="info"><div>≈ <b>{trials}</b> trials. With live agents each interview takes roughly 30 to 60 s (fast candidate) or several minutes (rubric loop). Mock baselines are instant.</div></Alert>
+            <Alert tone="info"><div>≈ <b>{trials}</b> trials. Every exchange is two model calls (subject, then assistant); on hosted APIs that is a few seconds per exchange and trials run several at a time. Replays, repeats and re-runs reuse cached responses. For a smoke run pick one case and a low exchange cap. Mock baselines are instant.</div></Alert>
             {err && <Alert tone="bad">{err}</Alert>}
             <div><button type="submit" className="btn" disabled={busy || !form.assistant_ids.length || !form.subject_ids.length || !form.tracks.length}>{busy ? <><span className="spinner" /> Starting</> : 'Run bake-off'}</button></div>
           </div>
         </Card>
       </form>
       <div className="grid" style={{ gridTemplateColumns: 'minmax(260px, 300px) minmax(0, 1fr)', alignItems: 'start' }}>
-        <Card title="Runs" flush>
+        <Card title="Runs" hint={runs ? `${runs.length}` : ''} flush right={<button type="button" className="btn ghost sm" onClick={clearRuns} disabled={!finishedRuns} title="Delete every finished run">Clear finished</button>}>
           <div className="stack tight" style={{ padding: 10 }}>
             {runs === null && [1, 2].map((i) => <div key={i} className="skeleton" />)}
             {runs && runs.length === 0 && <Empty title="No runs yet" />}
             {(runs || []).map((r) => (
               <button type="button" key={r.id} className="card subtle" style={{ textAlign: 'left', padding: 10, cursor: 'pointer', border: `1px solid ${selected?.id === r.id ? 'var(--accent)' : 'var(--border)'}`, color: 'inherit', font: 'inherit' }} onClick={async () => setSelected(await api.bakeoff(r.id))}>
-                <div className="row between"><b className="small">{r.request.label || r.id}</b><Pill tone={r.status === 'completed' ? 'good' : r.status === 'failed' ? 'bad' : 'warn'}>{r.status}</Pill></div>
+                <div className="row between"><b className="small">{r.request.label || r.id}</b><Pill tone={statusTone(r.status)}>{r.status}</Pill></div>
                 <div className="xs muted">{r.request.assistant_ids.length} assistants × {r.request.subject_ids.length} subjects · {r.request.tracks.join(' + ')} · {fmtDate(r.created_at)}</div>
                 <div className="progress" style={{ marginTop: 6 }}><div style={{ width: `${r.total ? (100 * r.progress) / r.total : 0}%` }} /></div>
               </button>
@@ -172,11 +251,16 @@ export default function Bakeoff() {
             <div className="stack" style={{ gap: 16 }}>
               <div className="row between">
                 <div><h2>{selected.request.label || selected.id}</h2><div className="small muted">{selected.progress} / {selected.total} trials · started {fmtDate(selected.created_at)}</div></div>
-                <Pill tone={selected.status === 'completed' ? 'good' : selected.status === 'failed' ? 'bad' : 'warn'}>{selected.status}</Pill>
+                <div className="row" style={{ gap: 8 }}>
+                  <Pill tone={statusTone(selected.status)}>{selected.status}</Pill>
+                  {!finished(selected.status) && <button type="button" className="btn danger sm" onClick={stopRun}>Stop bake-off</button>}
+                  {finished(selected.status) && <button type="button" className="btn ghost sm" onClick={async () => { await api.deleteBakeoff(selected.id); setSelected(null); setRuns(await api.bakeoffs()) }}>Delete</button>}
+                </div>
               </div>
+              {selected.status === 'cancelled' && <Alert tone="warn">Stopped by the user after {selected.progress} of {selected.total} trials. No leaderboard is produced for a partial run.</Alert>}
               {selected.status === 'failed' && <Alert tone="bad"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', font: 'inherit' }}>{selected.error}</pre></Alert>}
-              {['queued', 'running'].includes(selected.status) && <Card><div className="stack tight"><div className="row between small muted"><span>Running trials in the background</span><span>{selected.total ? Math.round((100 * selected.progress) / selected.total) : 0}%</span></div><div className="progress"><div style={{ width: `${selected.total ? (100 * selected.progress) / selected.total : 0}%` }} /></div></div></Card>}
               {selected.status === 'completed' && <Leaderboard run={selected} />}
+              <LiveFeed run={selected} />
             </div>
           )}
         </div>

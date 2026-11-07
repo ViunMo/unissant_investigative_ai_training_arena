@@ -96,3 +96,28 @@ export function findingLabel(f) {
 export function fmtDate(iso) {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
+
+const AVATAR_LABEL = { investigator: 'Investigator (you)', subject: 'Simulated subject', assistant: 'Investigative assistant' }
+const AVATAR_ICON = {
+  investigator: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l7 3v5c0 4.8-3 8.4-7 10-4-1.6-7-5.2-7-10V6z"/><path d="M9.3 12.2l1.9 1.9 3.6-4"/></svg>,
+  subject: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5c.6-4 3.6-6.3 7.5-6.3s6.9 2.3 7.5 6.3"/></svg>,
+  assistant: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="8" width="16" height="11" rx="3.5"/><path d="M12 4v4M9 13.5h.01M15 13.5h.01M9.5 16.5h5"/></svg>,
+}
+
+/** Profile mark for a conversation participant: investigator (shield), subject (person) or assistant (robot). */
+export function Avatar({ who, size = 30 }) {
+  return <span className={`avatar ${who}`} style={{ width: size, height: size }} role="img" aria-label={AVATAR_LABEL[who]} title={AVATAR_LABEL[who]}>{AVATAR_ICON[who]}</span>
+}
+
+/** Chat-style "someone is typing" row: avatar plus three bouncing dots. */
+export function Typing({ who, label }) {
+  return (
+    <div className="msg a typing-row" role="status" aria-live="polite" aria-label={label}>
+      <Avatar who={who} />
+      <div className="bubble typing-bubble">
+        <div className="who">{label}</div>
+        <span className="typing" aria-hidden="true"><i /><i /><i /></span>
+      </div>
+    </div>
+  )
+}

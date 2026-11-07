@@ -119,6 +119,17 @@ class AssistantContext:
             + f"\nInterview context: {p.interview_context}\nLines of questioning: {', '.join(p.key_topics)}"
         )
 
+    def turn_text(self) -> str:
+        """Everything the assistant is handed to assess the latest turn (what the live feed shows)."""
+        latest = self.latest
+        return (
+            f"{self.case_text()}\n\nRELEASED RECORDS:\n{self.evidence_text()}\n\nTRANSCRIPT SO FAR:\n{self.transcript_text()}\n\n"
+            f"LATEST TURN TO ASSESS: T{latest.index}\nINVESTIGATOR QUESTION: {latest.question}\nSUBJECT ANSWER: {latest.answer}"
+        )
+
+    def final_text(self) -> str:
+        return f"{self.case_text()}\n\nRELEASED RECORDS:\n{self.evidence_text()}\n\nFULL TRANSCRIPT:\n{self.transcript_text()}"
+
     def record(self, payload: str) -> None:
         self.audit.append(payload)
 

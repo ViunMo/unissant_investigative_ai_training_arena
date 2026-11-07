@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -32,45 +33,84 @@ logger = logging.getLogger(__name__)
 from app.schemas import CandidateSpec, Coaching, FinalFinding, SubjectReply
 
 # USD per million tokens (input, output). Used for leaderboard cost disclosure.
+# Anthropic rates from the Claude API price list; gpt-6-luna and gemini-3.5-flash-lite rates from third-party price
+# aggregators (eesel.ai, anotherwrapper.com, Oct 2026) - verify against the vendors' pages before billing on them.
 PRICES: dict[str, tuple[float, float]] = {
+    "gpt-6-luna": (0.10, 0.50),
     "claude-opus-5-5": (4.0, 20.0),
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-haiku-5-5": (0.10, 0.50),
+    "gemini-3.5-flash-lite": (0.30, 2.50),
 }
+
+
+_limiters: dict[str, Any] = {}
+_limiters_lock = threading.Lock()
+
+
+def rate_limiter_for(vendor: str | None, rpm: int):
+    """One token bucket per vendor shared by every model instance, so concurrent bake-off trials and practice
+    sessions together stay under the vendor's requests-per-minute quota instead of collecting 429s."""
+    if not vendor or rpm <= 0:
+        return None
+    with _limiters_lock:
+        if vendor not in _limiters:
+            from langchain_core.rate_limiters import InMemoryRateLimiter
+
+            _limiters[vendor] = InMemoryRateLimiter(requests_per_second=rpm / 60.0, check_every_n_seconds=0.1, max_bucket_size=max(1, rpm // 4))
+        return _limiters[vendor]
 
 
 def build_chat_model(model_id: str, effort: str = "medium", max_tokens: int = 4096, settings=None) -> BaseChatModel:
     """Chat model for the configured provider.
 
-    - openai_compatible: any OpenAI-style gateway (chat completions API), e.g. gpt-oss-20b.
-    - anthropic: Claude with adaptive thinking, explicit effort and server-side refusal fallbacks.
+    - cloud: hosted vendor APIs, vendor inferred from the model id. OpenAI (`gpt-*`) and Gemini (`gemini-*`) take
+      the candidate's effort as `reasoning_effort`; Claude (`claude-*`) runs adaptive thinking with explicit effort.
+    - openai_compatible: any OpenAI-style gateway (chat completions API), e.g. gpt-oss-20b or a local Ollama.
     """
-    from app.config import get_settings
+    from app.config import get_settings, vendor_for
 
     settings = settings or get_settings()
+    effort = effort if effort in ("low", "medium", "high") else "medium"
     if settings.resolved_provider == "openai_compatible":
         from langchain_openai import ChatOpenAI
 
+        # reasoning_effort is a gpt-oss feature; Llama/Mistral-style gateway models reject or ignore it.
+        extra = {"reasoning_effort": effort} if "gpt-oss" in model_id else {}
         return ChatOpenAI(
             model=model_id,
-            base_url=settings.openai_base_url,
-            api_key=settings.openai_api_key,
-            reasoning_effort=effort if effort in ("low", "medium", "high") else "medium",
+            base_url=settings.gateway_base_url,
+            api_key=settings.gateway_api_key,
+            temperature=settings.openai_temperature,
             max_tokens=max_tokens,
             max_retries=2,
-            timeout=120,
+            timeout=300,  # local CPU inference of a 20B model can take minutes per call
+            **extra,
         )
-    from langchain_anthropic import ChatAnthropic
+    vendor = vendor_for(model_id)
+    limiter = rate_limiter_for(vendor, settings.rpm_for_vendor(vendor))
+    if vendor == "openai":
+        from langchain_openai import ChatOpenAI
 
-    return ChatAnthropic(
-        model=model_id,
-        max_tokens=max_tokens,
-        thinking={"type": "adaptive"},
-        output_config={"effort": effort},
-        betas=["server-side-fallback-2026-07-01"],
-        model_kwargs={"fallbacks": "default"},
-        max_retries=2,
-    )
+        # gpt-6 is a reasoning model: it rejects any non-default temperature; reasoning_effort sets thinking depth.
+        return ChatOpenAI(model=model_id, api_key=settings.openai_key, max_tokens=max_tokens,
+                          reasoning_effort=effort, max_retries=2, timeout=120, rate_limiter=limiter)
+    if vendor == "google":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        # Gemini 3.5 uses fixed sampling defaults (temperature is ignored); reasoning_effort maps to thinking level.
+        # The free tier allows 15 requests/min, so the shared limiter plus more retries matter most here.
+        return ChatGoogleGenerativeAI(model=model_id, google_api_key=settings.google_key, max_output_tokens=max_tokens,
+                                      reasoning_effort=effort, max_retries=4, timeout=120, rate_limiter=limiter)
+    if vendor == "anthropic":
+        from langchain_anthropic import ChatAnthropic
+
+        # Server-side refusal fallbacks exist for Opus/Sonnet 5.5 but not for Haiku 5.5, which rejects the parameter.
+        fallback = {} if "haiku" in model_id else {"betas": ["server-side-fallback-2026-07-01"], "model_kwargs": {"fallbacks": "default"}}
+        return ChatAnthropic(model=model_id, api_key=settings.anthropic_key, max_tokens=max_tokens,
+                             thinking={"type": "adaptive"}, output_config={"effort": effort}, max_retries=2,
+                             rate_limiter=limiter, **fallback)
+    raise ValueError(f"cannot infer the vendor of model '{model_id}'; use a gpt-*, claude-* or gemini-* id or configure a gateway")
 
 
 def estimate_cost(model_id: str | None, input_tokens: int, output_tokens: int) -> float:

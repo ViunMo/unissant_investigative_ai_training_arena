@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api.js'
 import Coaching from '../components/Coaching.jsx'
 import Debrief from '../components/Debrief.jsx'
-import { Alert, Card, PageHeader, Pill, Quality, Spinner, Steps, findingLabel } from '../components/ui.jsx'
+import { Alert, Avatar, Card, PageHeader, Pill, Quality, Steps, Typing, findingLabel } from '../components/ui.jsx'
 
 const STEPS = ['Set up', 'Interview', 'Lock finding', 'Debrief']
 
@@ -21,8 +21,10 @@ function StartForm({ onStart }) {
   const [err, setErr] = useState(null)
   useEffect(() => {
     api.scenarios().then(setCases)
-    api.candidates('assistant').then(setAssistants)
-    api.candidates('subject').then(setSubjects)
+    // candidate ids depend on the configured models, so default to the first one whose model can be called
+    const firstUsable = (list) => (list.find((c) => c.available !== false) || list[0])?.id || ''
+    api.candidates('assistant').then((a) => { setAssistants(a); setForm((f) => (a.some((c) => c.id === f.assistant_id && c.available !== false) ? f : { ...f, assistant_id: firstUsable(a) })) })
+    api.candidates('subject').then((s) => { setSubjects(s); setForm((f) => (s.some((c) => c.id === f.subject_id && c.available !== false) ? f : { ...f, subject_id: firstUsable(s) })) })
   }, [])
   const submit = async (e) => {
     e.preventDefault(); setErr(null); setBusy(true)
@@ -61,13 +63,13 @@ function StartForm({ onStart }) {
           <div className="stack">
             <label className="field">Investigative assistant
               <select value={form.assistant_id} onChange={set('assistant_id')}>
-                {assistants.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+                {assistants.map((a) => <option key={a.id} value={a.id} disabled={a.available === false}>{a.label}{a.available === false ? ` · ${a.unavailable_reason || 'unavailable'}` : ''}</option>)}
               </select>
               {asst && <span className="help">{asst.description || ''} Runtime: {asst.effective_runtime}.</span>}
             </label>
             <label className="field">Simulated subject
               <select value={form.subject_id} onChange={set('subject_id')}>
-                {subjects.map((a) => <option key={a.id} value={a.id}>{a.label} · {a.effective_runtime}</option>)}
+                {subjects.map((a) => <option key={a.id} value={a.id} disabled={a.available === false}>{a.label} · {a.available === false ? (a.unavailable_reason || 'unavailable') : a.effective_runtime}</option>)}
               </select>
             </label>
             {err && <Alert tone="bad">{err}</Alert>}
@@ -161,10 +163,10 @@ export default function Practice() {
                 <div key={t.index} className="stack tight">
                   <div className="msg q">
                     <div className="bubble"><div className="who">You · T{t.index} {t.coaching && <Quality value={t.coaching.question_quality} />}</div>{t.question}</div>
-                    <div className="avatar i">You</div>
+                    <Avatar who="investigator" />
                   </div>
                   <div className="msg a">
-                    <div className="avatar s">S</div>
+                    <Avatar who="subject" />
                     <div className="bubble"><div className="who">Subject{locked && <Pill tone={['truthful', 'uncertain'].includes(t.tactic) ? 'good' : 'warn'}>{t.tactic}</Pill>}</div>{t.answer}</div>
                   </div>
                   {t.evidence_released.map((e) => (
@@ -175,8 +177,8 @@ export default function Practice() {
                   ))}
                 </div>
               ))}
-              {phase === 'subject' && <Spinner label="Subject is answering…" />}
-              {phase === 'assistant' && <Spinner label="Assistant is reviewing the exchange…" />}
+              {phase === 'subject' && <Typing who="subject" label="Subject is answering…" />}
+              {phase === 'assistant' && <Typing who="assistant" label="Assistant is reviewing the exchange…" />}
               <div ref={bottom} />
             </div>
             {active && (
@@ -215,7 +217,7 @@ export default function Practice() {
         </div>
 
         <div className="stack sticky" style={{ gap: 16 }}>
-          <Card title="Assistant coaching" hint={lastCoaching ? `turn ${used}` : ''}>
+          <Card title="Assistant coaching" hint={lastCoaching ? `turn ${used}` : ''} right={<Avatar who="assistant" size={24} />}>
             {used === 0 ? <p className="muted small">Coaching appears after each exchange.</p>
               : <Coaching coaching={lastCoaching} onUseFollowUp={active ? (q) => { setQuestion(q); input.current?.focus() } : null} />}
           </Card>

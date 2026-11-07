@@ -82,7 +82,7 @@ export default function KnowledgeGraph({ nodes, links, height = 420, legend = tr
              onClick={(e) => { e.stopPropagation(); setFocus(focus === n.id ? null : n.id) }}>
             <title>{n.title || n.label}</title>
             <circle r={n.size || 14} fill={GROUP_COLORS[n.group] || '#8d9bb2'} fillOpacity={0.22} stroke={GROUP_COLORS[n.group] || '#8d9bb2'} strokeWidth={focus === n.id ? 3 : 1.5} />
-            <text y={(n.size || 14) + 12} fontSize="10.5" fill="#e8edf5" textAnchor="middle">{n.label}</text>
+            <text y={(n.size || 14) + 12} fontSize="10.5" fill="#eef3fa" textAnchor="middle">{n.label}</text>
             {badges?.[n.id]?.length > 0 && (() => {
               const nums = badges[n.id]
               const text = nums.length <= 3 ? nums.join(',') : `${nums[0]}+`
@@ -91,8 +91,8 @@ export default function KnowledgeGraph({ nodes, links, height = 420, legend = tr
               return (
                 <g transform={`translate(${r * 0.75},${-r * 0.75})`}>
                   <title>{`Flow step${nums.length > 1 ? 's' : ''} ${nums.join(', ')}`}</title>
-                  <rect x={-w / 2} y={-8} width={w} height={16} rx={8} fill="#e8edf5" stroke={GROUP_COLORS[n.group] || '#8d9bb2'} strokeWidth="1.5" />
-                  <text y={3.5} fontSize="9.5" fontWeight="700" fill="#0b1220" textAnchor="middle">{text}</text>
+                  <rect x={-w / 2} y={-8} width={w} height={16} rx={8} fill="#eef3fa" stroke={GROUP_COLORS[n.group] || '#8d9bb2'} strokeWidth="1.5" />
+                  <text y={3.5} fontSize="9.5" fontWeight="700" fill="#07162e" textAnchor="middle">{text}</text>
                 </g>
               )
             })()}
@@ -102,7 +102,7 @@ export default function KnowledgeGraph({ nodes, links, height = 420, legend = tr
       {legend && (
         <div className="kg-legend">
           {groups.map((g) => <span key={g}><i style={{ background: GROUP_COLORS[g] || '#8d9bb2' }} />{g}</span>)}
-          {badges && <span><i style={{ background: '#e8edf5', borderRadius: 4 }} />flow step number</span>}
+          {badges && <span><i style={{ background: '#eef3fa', borderRadius: 4 }} />flow step number</span>}
           <span className="muted">click a node to focus its neighbours</span>
         </div>
       )}

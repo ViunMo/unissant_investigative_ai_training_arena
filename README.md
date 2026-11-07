@@ -5,8 +5,11 @@ AI assistants coach them. Built for the Unissant use case "Investigative AI Trai
 Interview Coaching and Evaluation".
 
 - **Backend:** Python 3.12, FastAPI, [LangChain deepagents](https://docs.langchain.com/oss/python/deepagents).
-- **Models:** any OpenAI-compatible gateway (the challenge-provided `gpt-oss-20b` endpoint is the default
-  configuration) or Anthropic Claude. The provider is chosen in `backend/.env`.
+- **Models:** hosted APIs from three vendors, one candidate per model: `gpt-6-luna` (OpenAI), `claude-haiku-5-5`
+  (Anthropic) and `gemini-3.5-flash-lite` (Google Gemini). Any OpenAI-compatible gateway (e.g. a local Ollama
+  server) still works. The provider and model list are chosen in `backend/.env`.
+- **Login:** username and password accounts (a seeded trainer account plus self-registration); every API route
+  except `/api/health` and `/api/auth/*` needs a bearer token.
 - **Frontend:** React 19 + Vite.
 - **Runs offline:** with no model credentials every candidate falls back to a deterministic mock runtime,
   so the full interview, debrief and bake-off flows (and the test suite) work with no model calls.
@@ -30,7 +33,7 @@ Manual steps:
 # backend
 cd backend
 uv venv --python 3.12 .venv && .venv/bin/python -m pip install -r requirements.txt   # or: uv pip install -r requirements.txt
-cp .env.example .env            # set ARENA_OPENAI_BASE_URL / ARENA_OPENAI_API_KEY / ARENA_OPENAI_MODEL (or ANTHROPIC_API_KEY)
+cp .env.example .env            # set OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY (or a gateway URL + key)
 ./run_dev.sh                    # http://localhost:8000  (OpenAPI docs at /docs)
 
 # frontend (second terminal)
@@ -82,18 +85,24 @@ Both agent categories are built with `create_deep_agent`:
   evasion-event ground truth; they are never shown to assistants. Behaviour outside the permitted list, or
   disclosure of a must-not-disclose fact, is a fidelity failure, not successful evasion.
 - Models are built by `build_chat_model` in `app/agents/llm.py`:
-  - `ARENA_PROVIDER=openai_compatible` (default when the gateway variables are set): `ChatOpenAI` pointed at
-    `ARENA_OPENAI_BASE_URL` with `ARENA_OPENAI_MODEL` (tested with `gpt-oss-20b`, which supports tool calls and
-    `reasoning_effort`). The candidate policy's `effort` maps to `reasoning_effort`.
-  - `ARENA_PROVIDER=anthropic`: `claude-opus-5-5` with adaptive thinking, explicit effort and server-side
-    refusal fallbacks; `claude-sonnet-5-5` as the rubric grader.
+  - `ARENA_PROVIDER=cloud` (default when a vendor key is set): the vendor is inferred from each id in
+    `ARENA_MODELS`. `gpt-*` -> `ChatOpenAI` (reasoning model: no temperature, the candidate's `effort` maps to
+    `reasoning_effort`); `gemini-*` -> `ChatGoogleGenerativeAI` (fixed sampling, `effort` -> `reasoning_effort`);
+    `claude-*` -> `ChatAnthropic` with adaptive thinking and explicit `effort` (server-side refusal fallbacks on
+    Opus/Sonnet; Haiku 5.5 has none and rejects the parameter). The first model is the rubric grader unless
+    `ARENA_GRADER_MODEL` says otherwise.
+  - `ARENA_PROVIDER=openai_compatible`: `ChatOpenAI` pointed at `ARENA_OPENAI_BASE_URL` with `ARENA_OPENAI_MODEL`
+    (tested with `gpt-oss-20b` and local Ollama models). `effort` maps to `reasoning_effort` on gpt-oss only.
   - `ARENA_PROVIDER=mock`: deterministic rule-based runtimes, no network.
-- Observed on the gateway model: the fast candidate coaches in roughly 4-5 s per turn; the rubric-loop candidate
-  takes 20-75 s per turn because the grader re-runs the agent. The leaderboard publishes both latencies.
+- Observed on the hosted models (low effort, one exchange, 2026-11-06): coaching took about 5 s on
+  `claude-haiku-5-5`, 8 s on `gpt-6-luna` and 10 s on `gemini-3.5-flash-lite`; the rubric-loop candidate takes
+  several times longer because the grader re-runs the agent. The leaderboard publishes both latencies.
 
 Candidates are versioned combinations of model + prompt version + tool configuration + policy
-(`app/agents/candidates.py`): `asst-evidence-v1` (rubric loop on), `asst-fast-v1` (rubric loop off, low effort),
-`subj-llm-v1`, `subj-llm-medium-v1`, plus the mock baselines below. Two deterministic baselines ship on purpose: an evidence-first rule set that respects
+(`app/agents/candidates.py`): per configured model one `asst-<model>-v1` coach (evidence-first prompt, low effort,
+no rubric loop; identical prompt, tools and budget across models) and one `subj-<model>-v1` subject, plus
+`asst-<model>-rubric-v1` on the first model (deepagents RubricMiddleware self-evaluation, medium effort), plus the
+mock baselines below. Two deterministic baselines ship on purpose: an evidence-first rule set that respects
 the false-positive constraint, and an aggressive rule set that treats uncertainty as evasion and is expected to
 fail the 5% gate.
 
@@ -121,7 +130,9 @@ evaluator-only canary strings (role markers, private objectives). A candidate th
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/api/health` | provider, model ids, gateway URL, case count |
+| GET | `/api/health` | provider, model ids, case count (public, no login) |
+| POST | `/api/auth/login` · `/api/auth/register` | username + password -> bearer token (public) |
+| GET | `/api/auth/me` | the signed-in user |
 | GET | `/api/scenarios` | public packets only |
 | GET | `/api/candidates?kind=assistant\|subject` | candidate specs and their effective runtime |
 | POST | `/api/sessions` | start (mode, case or random, assistant, subject, budget) |
@@ -131,21 +142,24 @@ evaluator-only canary strings (role markers, private objectives). A candidate th
 | GET | `/api/investigators/{name}/progress` | baseline vs recent sessions |
 | POST | `/api/bakeoffs` | start a tournament (runs in the background) |
 | GET | `/api/bakeoffs/{id}?include_results=true` | status, leaderboards, per-trial results |
+| POST | `/api/bakeoffs/{id}/stop` | stop a queued or running bake-off (status becomes `cancelled`) |
+| DELETE | `/api/bakeoffs` · `/api/bakeoffs/{id}` | clear every finished bake-off, or delete one |
 
 ## Project layout
 
 ```
 backend/app
-  config.py            settings (provider auto|openai_compatible|anthropic|mock, model ids)
+  config.py            settings (provider auto|cloud|openai_compatible|mock, model list, vendor keys)
+  auth.py              login: PBKDF2 password hashes in data/users.json, HMAC-signed bearer tokens
   schemas.py           all Pydantic models
   scenarios/           library.py (3 families × 2 variants), engine.py
-  agents/              context.py (isolation boundary), llm.py (deepagents), mock.py, candidates.py,
+  agents/              context.py (isolation boundary), llm.py (deepagents, rate limiters), cache.py, mock.py, candidates.py,
                        prompts.py, profiles.py, validation_loop.py
   loops/               interview_loop.py (L2), bakeoff_loop.py (L3)
   scoring/scoring.py   debrief, trial results, leaderboards, bootstrap CI, progress
   api/routes.py        FastAPI routes;  main.py app factory
-backend/tests          29 tests, all runnable offline
-frontend/src           sidebar app shell; pages: Home (KPIs + knowledge graphs), Practice (stepper), Sessions (progress chart),
+backend/tests          38 tests, all runnable offline
+frontend/src           login page + sidebar app shell; pages: Login, Home (KPIs + knowledge graphs), Practice (stepper), Sessions (progress chart),
                        Bakeoff (leaderboards), Scenarios; components: KnowledgeGraph (d3-force), ScoreChart, Coaching, Debrief
 ```
 
@@ -155,3 +169,60 @@ Add a matched truthful and deceptive `Scenario` pair to `app/scenarios/library.p
 independent of role, give every `question_bank` entry keywords that resolve to its own topic (a test enforces this),
 and list only evaluator-only strings as `isolation_canaries`. Put new families on the `hidden` split so they never
 appear in development prompts or tuning.
+
+## Hosted three-model bake-off (OpenAI, Anthropic, Gemini)
+
+The default configuration registers one assistant and one subject candidate per hosted model, with the same
+prompt, effort and tools, so only the model differs. `backend/.env`:
+
+```
+ARENA_PROVIDER=cloud
+ARENA_MODELS=gpt-6-luna,claude-haiku-5-5,gemini-3.5-flash-lite
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=...
+```
+
+A model whose vendor key is missing is listed but greyed out (`available: false` with the reason) and refused with
+`409` at session start. Per-model cost on the leaderboard uses the price table in `app/agents/llm.py`.
+
+## Throughput and the response cache
+
+- Every model response is stored in `backend/data/llm_cache.sqlite`, keyed on the exact prompt plus the model's
+  parameters. Replayed transcripts, repeated trials and re-runs of the same cases are answered from disk; cache hits
+  report zero tokens and zero cost. `ARENA_LLM_CACHE=false` disables it; delete the file to start fresh.
+- Bake-off trials are independent, so each phase runs `ARENA_BAKEOFF_WORKERS` (default 4) of them concurrently;
+  the live feed lists every trial in flight.
+- One request-rate limiter per vendor (`ARENA_OPENAI_RPM`, `ARENA_ANTHROPIC_RPM`, `ARENA_GOOGLE_RPM`) is shared by
+  all sessions and trials. The Gemini free tier allows 15 requests per minute, so Google defaults to 14 and the
+  Gemini client retries 429s up to four times; raise the limit once billing is enabled on the Google project.
+
+## Login
+
+The first start seeds a trainer account from `ARENA_ADMIN_USER` / `ARENA_ADMIN_PASSWORD` (default
+`trainer` / `arena-demo`; change it before sharing the URL). Investigators create their own accounts on the login
+page; the username becomes the investigator name that sessions and progress are tracked under. Accounts live in
+`data/users.json` (PBKDF2 hashes), tokens are HMAC-signed with `data/secret.key` and last 12 hours. Set
+`ARENA_AUTH_REQUIRED=false` to run the API open (e.g. for scripted evaluation).
+
+## Alternative: local three-model bake-off (Ollama)
+
+Any OpenAI-compatible gateway can serve several models; the arena then registers one assistant and one subject
+candidate per model with the same prompt, effort and tools, so only the model differs. With [Ollama](https://ollama.com):
+
+```bash
+ollama pull gpt-oss:20b && ollama pull llama3.1:8b && ollama pull mistral-nemo:12b
+```
+
+`backend/.env`:
+
+```
+ARENA_OPENAI_BASE_URL=http://localhost:11434/v1
+ARENA_OPENAI_API_KEY=ollama                      # any non-empty value
+ARENA_OPENAI_ASSISTANT_MODELS=gpt-oss:20b,llama3.1:8b,mistral-nemo:12b
+ARENA_OPENAI_TEMPERATURE=0.3
+```
+
+Set `OLLAMA_CONTEXT_LENGTH=16384` for the Ollama server: the case packet plus transcript exceeds its 4k default.
+Smaller models produce more L0 validation-loop retries and `[assistant output invalid]` fallbacks; the bake-off
+records those as a result, not an error.

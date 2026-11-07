@@ -7,9 +7,33 @@ from app.config import Settings
 from app.main import create_app
 
 
+def signed_in(settings: Settings) -> TestClient:
+    c = TestClient(create_app(settings, persist=False))
+    tok = c.post("/api/auth/login", json={"username": settings.admin_user, "password": settings.admin_password}).json()["token"]
+    c.headers["Authorization"] = f"Bearer {tok}"
+    return c
+
+
 @pytest.fixture
 def client():
-    return TestClient(create_app(Settings(provider="mock"), persist=False))
+    return signed_in(Settings(provider="mock"))
+
+
+def test_login_required_registration_and_tokens():
+    c = TestClient(create_app(Settings(provider="mock", admin_user="trainer", admin_password="arena-demo"), persist=False))
+    assert c.get("/api/health").status_code == 200  # public: the login page shows the runtime
+    assert c.get("/api/scenarios").status_code == 401
+    assert c.post("/api/auth/login", json={"username": "trainer", "password": "wrong"}).status_code == 401
+    assert c.post("/api/auth/register", json={"username": "x", "password": "short"}).status_code == 400
+    r = c.post("/api/auth/register", json={"username": "sam", "password": "secret1"})
+    assert r.status_code == 201 and r.json()["user"]["role"] == "investigator"
+    assert c.post("/api/auth/register", json={"username": "SAM", "password": "secret1"}).status_code == 409
+    c.headers["Authorization"] = f"Bearer {r.json()['token']}"
+    assert c.get("/api/auth/me").json()["username"] == "sam"
+    assert c.get("/api/scenarios").status_code == 200
+    c.headers["Authorization"] = "Bearer " + r.json()["token"][:-3] + "abc"
+    assert c.get("/api/scenarios").status_code == 401
+    assert "password" not in str(c.get("/api/health").json())
 
 
 def test_health_and_catalogue_hide_private_data(client):
@@ -55,3 +79,5 @@ def test_bakeoff_endpoint_runs_in_background(client):
     assert "results" not in st
     assert len(client.get(f"/api/bakeoffs/{b.json()['id']}?include_results=true").json()["results"]) == 2
     assert client.post("/api/bakeoffs", json={"assistant_ids": ["nope"], "subject_ids": ["subj-mock-v1"]}).status_code == 404
+    assert client.post(f"/api/bakeoffs/{b.json()['id']}/stop").status_code == 400  # already finished
+    assert client.delete("/api/bakeoffs").json()["deleted"] == 1 and client.get("/api/bakeoffs").json() == []

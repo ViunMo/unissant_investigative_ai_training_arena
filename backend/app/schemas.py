@@ -334,12 +334,34 @@ class SubjectScore(BaseModel):
     unresolved_rate: float
 
 
+class BakeoffEvent(BaseModel):
+    """One step of a bake-off trial for the live feed. Hidden labels never appear until the trial is locked."""
+
+    ts: str = Field(default_factory=now_iso)
+    kind: str  # phase | trial_started | subject_answered | assistant_input | assistant_coached | evidence_released | assistant_final | trial_done
+    track: str = ""
+    case_id: str = ""
+    assistant_id: str = ""
+    subject_id: str = ""
+    turn: int | None = None
+    text: str = ""
+    model_input: str | None = None  # the exact data handed to the model (truncated)
+    model_output: str | None = None
+    latency_ms: int | None = None
+
+
 class BakeoffRun(BaseModel):
     id: str = Field(default_factory=lambda: new_id("bake"))
     request: BakeoffRequest
-    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    status: Literal["queued", "running", "completed", "failed", "cancelled"] = "queued"
     progress: int = 0
     total: int = 0
+    phase: str = ""
+    current: dict[str, Any] | None = None  # the most recently updated trial and stage (kept for older clients)
+    active: list[dict[str, Any]] = Field(default_factory=list)  # every trial running right now (trials run concurrently)
+    workers: int = 1
+    events: list[BakeoffEvent] = Field(default_factory=list)  # oldest first, capped by the loop
+    frozen_total: int = 0
     error: str | None = None
     results: list[TrialResult] = Field(default_factory=list)
     assistant_leaderboard: list[AssistantScore] = Field(default_factory=list)

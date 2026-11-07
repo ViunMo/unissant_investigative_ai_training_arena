@@ -60,6 +60,19 @@ class Store:
             self.bakeoffs[b.id] = b
             self._write("bakeoffs", b.id, b.model_dump_json())
 
+    def delete_bakeoff(self, bid: str) -> None:
+        with self._lock:
+            self.bakeoffs.pop(bid, None)
+            if self.data_dir:
+                (self.data_dir / "bakeoffs" / f"{bid}.json").unlink(missing_ok=True)
+
+    def clear_bakeoffs(self) -> int:
+        """Delete every finished (completed, failed or cancelled) bake-off; running ones are kept."""
+        finished = [b.id for b in self.bakeoffs.values() if b.status not in ("queued", "running")]
+        for bid in finished:
+            self.delete_bakeoff(bid)
+        return len(finished)
+
     def bakeoff(self, bid: str) -> BakeoffRun:
         if bid not in self.bakeoffs:
             raise KeyError(bid)

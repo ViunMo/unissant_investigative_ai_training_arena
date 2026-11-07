@@ -61,7 +61,8 @@ export default function Home({ health }) {
         actions={<><Link className="btn" to="/practice">Start an interview</Link><Link className="btn secondary" to="/bakeoff">Run a bake-off</Link></>} />
 
       <div className="grid grid-4" style={{ marginBottom: 16 }}>
-        <Tile k="Runtime" v={health ? (live ? health.assistant_model : 'mock') : '…'} small tone={live ? 'good' : 'warn'} d={health ? (live ? (health.provider === 'openai_compatible' ? 'LangChain deepagents · OpenAI-compatible gateway' : 'LangChain deepagents · Anthropic') : 'no model credentials configured') : 'checking backend'} />
+        <Tile k="Runtime" v={health ? (live ? (health.assistant_models?.length > 1 ? `${health.assistant_models.length} models` : health.assistant_model) : 'mock') : '…'} small tone={live ? 'good' : 'warn'}
+          d={health ? (live ? `${health.assistant_models?.length > 1 ? health.assistant_models.join(' · ') + ' · ' : ''}LangChain deepagents · ${health.provider_label}` : 'no model credentials configured') : 'checking backend'} />
         <Tile k="Synthetic cases" v={cases.length || '…'} d={`${new Set(cases.map((c) => c.family_id)).size} families, matched truthful and deceptive variants`} />
         <Tile k="Candidates" v={candidates.length || '…'} d={`${candidates.filter((c) => c.kind === 'assistant').length} assistants · ${candidates.filter((c) => c.kind === 'subject').length} subjects`} />
         <Tile k="Locked sessions / bake-offs" v={`${lockedCount} / ${completed}`} d="debriefed interviews and completed tournaments" />
