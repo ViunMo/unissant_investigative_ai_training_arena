@@ -38,7 +38,7 @@ def create_app(settings: Settings | None = None, persist: bool = True) -> FastAP
     app.state.llm_cache_path = settings.data_dir / "llm_cache.sqlite" if (persist and settings.llm_cache) else None
     app.state.llm_cache = None
     app.state.services = Services(
-        engine=ScenarioEngine(),
+        engine=ScenarioEngine(store_dir=settings.data_dir / "scenarios" if persist else None),  # uploaded cases survive restarts
         registry=CandidateRegistry(settings),
         store=Store(settings.data_dir if persist else None),
         users=UserStore(settings.data_dir if persist else None, settings.admin_user, settings.admin_password, settings.secret_key),

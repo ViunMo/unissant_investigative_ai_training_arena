@@ -153,6 +153,11 @@ evaluator-only canary strings (role markers, private objectives). A candidate th
 | GET | `/api/graph/status` · `/insights` · `/sessions` | Neo4j connection, cross-session queries, node/link graph (503 when not configured) |
 | POST | `/api/graph/rebuild` | mirror every locked session into Neo4j |
 | DELETE | `/api/bakeoffs` · `/api/bakeoffs/{id}` | clear every finished bake-off, or delete one |
+| GET | `/api/scenarios/template?format=yaml\|json` | a worked matched pair in the case-brief format (trainer) |
+| POST | `/api/scenarios/import` | validate (`dry_run`) or add the cases in an uploaded JSON/YAML file; all-or-nothing (trainer) |
+| POST | `/api/scenarios/draft` | draft a matched pair from a plain-language description with the coaching model (trainer) |
+| GET | `/api/scenarios/{id}/export?format=brief\|scenario` | the full case, private packets included, for editing (trainer) |
+| DELETE | `/api/scenarios/{id}` | remove an uploaded case; refused while sessions or bake-offs reference it (trainer) |
 
 ## Project layout
 
@@ -162,7 +167,7 @@ backend/app
   auth.py              login: PBKDF2 password hashes in data/users.json, HMAC-signed bearer tokens
   graph.py             optional Neo4j mirror of locked sessions + cross-session Cypher queries
   schemas.py           all Pydantic models
-  scenarios/           library.py (3 families × 2 variants), engine.py
+  scenarios/           library.py (3 families × 2 variants), engine.py, authoring.py (case briefs, upload checks), drafting.py
   agents/              context.py (isolation boundary), llm.py (deepagents, rate limiters), cache.py, mock.py, candidates.py,
                        prompts.py, profiles.py, validation_loop.py
   loops/               interview_loop.py (L2), bakeoff_loop.py (L3)
@@ -172,6 +177,34 @@ backend/tests          42 tests, all runnable offline
 frontend/src           login page + sidebar app shell; pages: Login, Home (KPIs + knowledge graphs), Practice (stepper), Sessions (progress chart),
                        Bakeoff (leaderboards), Scenarios; components: KnowledgeGraph (d3-force), ScoreChart, Coaching, Debrief
 ```
+
+## Bringing your own cases (live, no code)
+
+Use-case providers can hand over a case and have it running in the arena within minutes. Sign in with a trainer
+account and open **Scenarios -> Add cases**:
+
+1. **Upload a file** - drop a JSON or YAML file holding one case or a list. Two shapes are accepted:
+   a *case brief* (the short author-friendly form; [docs/case-brief-template.yaml](docs/case-brief-template.yaml) is a
+   worked matched pair, also served by **Download template**) or a *full scenario* as produced by **Export**.
+2. **Draft from a description** - paste the provider's incident write-up; the coaching model drafts a truthful and
+   a deceptive variant in the brief format with fictional names. Nothing is added until you import it.
+3. **Review and import** - edit the text, **Validate** (a dry run that compiles every case and lists errors and
+   warnings without touching the arena), then **Import**. An upload is accepted or rejected as a whole, so a
+   half-imported matched pair can never reach a bake-off.
+
+A brief needs the public story (objective, context, timeline, initial record), the subject (persona, style, the
+fixed facts they know, what they must not disclose), the lines of questioning (a neutral question, the truthful
+answer and, for deceptive cases, the concealing answer and its tactic), scripted evidence releases, and the ground
+truth for the debrief. The compiler derives everything else: topic keywords (the question's own phrase plus words
+no other topic uses, so the coach's suggested question always resolves to its topic), the question bank, evidence
+ids, default objectives and permitted behaviours per role, and the isolation canaries used to detect leaks of the
+private packet. Explicit `keywords` override the derived ones.
+
+Uploaded cases are stored one file each under `backend/data/scenarios/` and reloaded at start. They appear in
+Practice, the case knowledge graph and (on the `hidden` split, the default) in bake-offs immediately. Built-in cases
+cannot be overwritten or removed; an uploaded case can be removed once no session or bake-off refers to it.
+Upload matched pairs that share a `family_id`: the bake-off's confidence intervals cluster by family, and a lone
+variant lets the role be guessed from the story.
 
 ## Adding a case family
 

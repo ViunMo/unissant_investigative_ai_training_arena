@@ -1,17 +1,38 @@
 """Scenario engine: locks case facts per trial, releases evidence on a script, and keeps
-role labels and scoring keys away from investigators and assistants."""
+role labels and scoring keys away from investigators and assistants.
+
+Cases come from two places: the built-in synthetic library and uploaded cases, which are kept as one JSON file
+each under ``<data_dir>/scenarios`` so they survive a restart."""
 from __future__ import annotations
 
 import copy
+import logging
 import random
+import threading
+from pathlib import Path
 
 from app.scenarios.library import ALL_SCENARIOS
 from app.schemas import EvidenceItem, PublicCasePacket, Scenario
 
+logger = logging.getLogger(__name__)
+
 
 class ScenarioEngine:
-    def __init__(self, scenarios: list[Scenario] | None = None) -> None:
+    def __init__(self, scenarios: list[Scenario] | None = None, store_dir: Path | None = None) -> None:
         self._scenarios: dict[str, Scenario] = {s.public.case_id: s for s in (scenarios or ALL_SCENARIOS)}
+        self._sources: dict[str, str] = {cid: "builtin" for cid in self._scenarios}
+        self._lock = threading.Lock()
+        self.store_dir = store_dir
+        if store_dir:
+            store_dir.mkdir(parents=True, exist_ok=True)
+            for f in sorted(store_dir.glob("*.json")):
+                try:
+                    s = Scenario.model_validate_json(f.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    logger.warning("skipping uploaded case %s: %s", f.name, exc)
+                    continue
+                self._scenarios[s.public.case_id] = s
+                self._sources[s.public.case_id] = "uploaded"
 
     # ---- catalogue -------------------------------------------------------
     def list_public(self) -> list[PublicCasePacket]:
@@ -29,9 +50,39 @@ class ScenarioEngine:
     def public(self, case_id: str) -> PublicCasePacket:
         return self._scenario(case_id).public
 
+    def source(self, case_id: str) -> str:
+        """'builtin' for library cases, 'uploaded' for cases brought in through the API."""
+        self._scenario(case_id)
+        return self._sources[case_id]
+
     def random_case(self, rng: random.Random | None = None, split: str | None = None) -> str:
         rng = rng or random.Random()
         return rng.choice(self.case_ids(split))
+
+    # ---- uploaded cases --------------------------------------------------
+    def add(self, scenario: Scenario, replace: bool = False) -> str:
+        """Register an uploaded case. Built-in cases are never overwritten; uploaded ones only with replace=True."""
+        cid = scenario.public.case_id
+        with self._lock:
+            if cid in self._scenarios:
+                if self._sources[cid] == "builtin":
+                    raise ValueError(f"{cid} is a built-in case; choose another case_id")
+                if not replace:
+                    raise ValueError(f"{cid} already exists; tick replace to overwrite it")
+            self._scenarios[cid] = copy.deepcopy(scenario)
+            self._sources[cid] = "uploaded"
+            if self.store_dir:
+                (self.store_dir / f"{cid}.json").write_text(scenario.model_dump_json(indent=1), encoding="utf-8")
+        return cid
+
+    def remove(self, case_id: str) -> None:
+        with self._lock:
+            if self._sources.get(case_id) != "uploaded":
+                raise ValueError(f"{case_id} is not an uploaded case" if case_id in self._scenarios else f"unknown case {case_id}")
+            self._scenarios.pop(case_id)
+            self._sources.pop(case_id)
+            if self.store_dir:
+                (self.store_dir / f"{case_id}.json").unlink(missing_ok=True)
 
     # ---- locked trial view ----------------------------------------------
     def lock(self, case_id: str) -> Scenario:

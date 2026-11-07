@@ -22,7 +22,7 @@ async function request(path, options = {}) {
     try { detail = (await res.json()).detail || detail } catch { /* ignore */ }
     throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
   }
-  return res.json()
+  return options.raw ? res.text() : res.json()
 }
 
 export const api = {
@@ -31,6 +31,11 @@ export const api = {
   register: (body) => request('/auth/register', { method: 'POST', body }),
   me: () => request('/auth/me'),
   scenarios: () => request('/scenarios'),
+  scenarioTemplate: (format = 'yaml') => request(`/scenarios/template?format=${format}`, { raw: true }),
+  importScenarios: (body) => request('/scenarios/import', { method: 'POST', body }),
+  draftScenarios: (body) => request('/scenarios/draft', { method: 'POST', body }),
+  exportScenario: (id, format = 'brief') => request(`/scenarios/${encodeURIComponent(id)}/export?format=${format}`),
+  deleteScenario: (id) => request(`/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   candidates: (kind) => request(kind ? `/candidates?kind=${kind}` : '/candidates'),
   startSession: (body) => request('/sessions', { method: 'POST', body }),
   session: (id) => request(`/sessions/${id}`),

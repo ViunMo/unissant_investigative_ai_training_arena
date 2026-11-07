@@ -289,3 +289,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .sidebar .user { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 10px; font-size: 12.5px; }
 .sidebar .user .avatar-sm { width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; flex: none; }
 @media (max-width: 900px) { .login-shell { grid-template-columns: 1fr; } .login-hero { display: none; } }
+
+/* case upload */
+.dropzone { border: 1.5px dashed var(--border-strong); border-radius: var(--radius-sm); padding: 26px 16px; text-align: center; cursor: pointer; background: var(--surface-2); display: grid; gap: 4px; }
+.dropzone:hover { border-color: var(--accent); background: rgba(242,183,51,.05); }
+textarea.mono { font-family: var(--mono); white-space: pre; overflow-wrap: normal; overflow-x: auto; }

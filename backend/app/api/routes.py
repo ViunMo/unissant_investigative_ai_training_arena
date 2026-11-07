@@ -5,13 +5,17 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from app.agents.candidates import CandidateRegistry
+from app.agents.llm import build_chat_model
 from app.auth import AuthError, UserStore
 from app.graph import GraphNotConfigured, GraphSync
 from app.loops.bakeoff_loop import BakeoffLoop
 from app.loops.interview_loop import InterviewLoop
+from app.scenarios.authoring import brief_from_scenario, build_items, parse_document, template
+from app.scenarios.drafting import draft_cases
 from app.scenarios.engine import ScenarioEngine, investigator_view
 from app.schemas import BakeoffRequest, BakeoffRun, FinalFinding, Mode, Session, TrainerRating, Turn
 from app.scoring.scoring import investigator_progress
@@ -46,6 +50,13 @@ def require_user(request: Request) -> dict | None:
     user = s.users.user_for_token(header[7:] if header.lower().startswith("bearer ") else None)
     if not user:
         raise HTTPException(401, "sign in to use the arena", headers={"WWW-Authenticate": "Bearer"})
+    return user
+
+
+def require_trainer(user: dict | None = Depends(require_user)) -> dict | None:
+    """Case authoring is for trainers: the seeded admin account and anyone given that role."""
+    if user is not None and user.get("role") != "trainer":
+        raise HTTPException(403, "only trainer accounts can add or remove cases")
     return user
 
 
@@ -128,6 +139,19 @@ class Credentials(BaseModel):
     password: str = Field(min_length=1, max_length=200)
 
 
+class CaseUpload(BaseModel):
+    content: str = Field(min_length=1, max_length=2_000_000)  # the file text: JSON or YAML, briefs or full scenarios
+    filename: str | None = None
+    dry_run: bool = False  # validate and preview only
+    replace: bool = False  # overwrite uploaded cases with the same case_id
+
+
+class CaseDraftRequest(BaseModel):
+    description: str = Field(min_length=20, max_length=20_000)
+    roles: list[str] = Field(default_factory=lambda: ["truthful", "deceptive"])
+    model: str | None = None  # defaults to the grader model (the first assistant model)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -171,7 +195,109 @@ def me(user: dict | None = Depends(require_user)):
 @router.get("/scenarios")
 def scenarios(request: Request):
     s = svc(request)
-    return [{**investigator_view(p), "split": s.engine.lock(p.case_id).split} for p in s.engine.list_public()]
+    return [{**investigator_view(p), "split": s.engine.lock(p.case_id).split, "source": s.engine.source(p.case_id)}
+            for p in s.engine.list_public()]
+
+
+# ---------------------------------------------------------------------------
+# Bring your own cases (trainer only)
+# ---------------------------------------------------------------------------
+@router.get("/scenarios/template", dependencies=[Depends(require_trainer)])
+def scenario_template(format: str = "yaml"):
+    """A worked matched pair in the case-brief format, ready to edit."""
+    fmt = "json" if format == "json" else "yaml"
+    return PlainTextResponse(template(fmt), media_type="application/json" if fmt == "json" else "application/yaml",
+                             headers={"Content-Disposition": f"attachment; filename=case-brief-template.{fmt}"})
+
+
+def _preview(item) -> dict:
+    sc = item.scenario
+    return {"index": item.index, "case_id": item.case_id, "kind": item.kind, "errors": item.errors, "warnings": item.warnings,
+            **({"title": sc.public.title, "family_id": sc.public.family_id, "role": sc.private.role.value, "split": sc.split,
+                "difficulty": sc.public.difficulty, "topics": sc.public.key_topics, "persona": sc.private.persona_name,
+                "initial_documents": len(sc.public.initial_documents), "evidence_release": len(sc.evaluator.evidence_release),
+                "max_turns": sc.public.max_turns, "scenario": sc.model_dump()} if sc else {})}
+
+
+@router.post("/scenarios/import", dependencies=[Depends(require_trainer)])
+def import_scenarios(body: CaseUpload, request: Request):
+    """Validate (and unless dry_run, register and persist) the cases in an uploaded JSON or YAML file.
+
+    The whole upload is accepted or rejected together so a half-imported matched pair never ends up in a bake-off."""
+    s = svc(request)
+    try:
+        items = build_items(parse_document(body.content, body.filename))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f"could not read the file: {str(exc)[:300]}")
+    for it in items:
+        if it.case_id and not it.errors:
+            try:
+                src = s.engine.source(it.case_id)
+            except KeyError:
+                continue
+            if src == "builtin":
+                it.errors.append(f"{it.case_id} is a built-in case; choose another case_id")
+            elif not body.replace:
+                it.errors.append(f"{it.case_id} was uploaded before; tick replace to overwrite it")
+            else:
+                it.warnings.append(f"replaces the uploaded case {it.case_id}")
+    ok = all(not it.errors for it in items)
+    imported: list[str] = []
+    if ok and not body.dry_run:
+        for it in items:
+            imported.append(s.engine.add(it.scenario, replace=body.replace))
+    return {"ok": ok, "dry_run": body.dry_run, "imported": imported, "items": [_preview(it) for it in items],
+            "cases": len(s.engine.case_ids())}
+
+
+@router.post("/scenarios/draft", dependencies=[Depends(require_trainer)])
+def draft_scenarios(body: CaseDraftRequest, request: Request):
+    """Turn a plain-language incident description into editable case briefs with a hosted model."""
+    s = svc(request)
+    model = getattr(request.app.state, "draft_model", None)  # tests inject a fake model here
+    if model is None:
+        model_id = body.model or s.registry.settings.model_for("grader")
+        if s.registry.provider == "mock" or not model_id:
+            raise HTTPException(409, "drafting needs a hosted model: set ARENA_PROVIDER=cloud and a vendor key")
+        missing = s.registry.settings.missing_credential(model_id)
+        if missing:
+            raise HTTPException(409, f"cannot draft with {model_id}: {missing}")
+        try:
+            model = build_chat_model(model_id, effort="medium", max_tokens=16000, settings=s.registry.settings)
+        except Exception as exc:
+            raise HTTPException(409, f"cannot build model {model_id}: {str(exc)[:200]}")
+    try:
+        return draft_cases(body.description, body.roles, model)
+    except Exception as exc:
+        raise model_call_failed(exc)
+
+
+@router.get("/scenarios/{case_id}/export", dependencies=[Depends(require_trainer)])
+def export_scenario(case_id: str, request: Request, format: str = "brief"):
+    """The full case (role, private and evaluator packets included) as a brief or the raw scenario, for editing."""
+    try:
+        sc = svc(request).engine.lock(case_id)
+    except KeyError:
+        raise HTTPException(404, "unknown case")
+    return brief_from_scenario(sc) if format == "brief" else sc.model_dump()
+
+
+@router.delete("/scenarios/{case_id}", dependencies=[Depends(require_trainer)])
+def delete_scenario(case_id: str, request: Request):
+    """Remove an uploaded case. Refused while sessions or bake-offs still refer to it."""
+    s = svc(request)
+    try:
+        src = s.engine.source(case_id)
+    except KeyError:
+        raise HTTPException(404, "unknown case")
+    if src == "builtin":
+        raise HTTPException(409, "built-in cases cannot be removed")
+    used_by = [x.id for x in s.store.sessions.values() if x.case_id == case_id]
+    used_by += [b.id for b in s.store.bakeoffs.values() if any(r.case_id == case_id for r in b.results) or (b.request.case_ids and case_id in b.request.case_ids)]
+    if used_by:
+        raise HTTPException(409, f"{case_id} is referenced by {len(used_by)} session(s) or bake-off(s); delete those first")
+    s.engine.remove(case_id)
+    return {"deleted": case_id, "cases": len(s.engine.case_ids())}
 
 
 @router.get("/scenarios/{case_id}")
