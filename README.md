@@ -18,9 +18,12 @@ All cases, people, companies and records are synthetic.
 
 Docs: [architecture.md](architecture.md) (components, loops, engineering disciplines) and [app_usage.md](app_usage.md) (how to use the app, with flow diagrams).
 
-![Architecture overview](docs/architecture-overview.png)
+![Tiered architecture](docs/architecture-tiers.png)
 
-(Source: [docs/architecture-overview.svg](docs/architecture-overview.svg); the PNG is a rendered copy so the layout is identical in every viewer.)
+Tiers: presentation (React), API (FastAPI + auth), service layer (loops, agents, scenario engine, scorer), data layer
+(JSON store, users, response cache, evidence graph), model layer (vendor dispatch, rate limiters, deepagents) and the
+external services. A compact component view is in [docs/architecture-overview.png](docs/architecture-overview.png).
+`docs/make_tiers_diagram.py` generates the tiered SVG; the PNGs are browser renders so they look the same everywhere.
 
 ## Quick start
 
